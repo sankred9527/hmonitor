@@ -9,7 +9,7 @@
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
 #include <getopt.h>
-
+#include "manager.h"
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
@@ -19,14 +19,7 @@
 #define BURST_SIZE 32
 
 
-struct _core_queue_maps {
-    uint16_t port_id;
-    uint16_t queue_id;    
-    int core_id;
-};
 
-struct _core_queue_maps  *core_queue_maps;
-uint32_t core_queue_maps_length = 0;
 
 static rte_atomic16_t global_exit_flag ;
 
@@ -46,7 +39,7 @@ static const struct rte_eth_conf port_conf_default = {
 };
 
 static const char short_options[] =
-	"c:"  /* config file path */	
+	"f:"  /* config file path */	
 	"T:"  /* timer period */
 	;
 
@@ -66,7 +59,7 @@ hm_parse_args(int argc, char **argv)
 
 		switch (opt) {
 		/* portmask */
-	    	case 'c':
+	    	case 'f':
                 global_config_filename = optarg;
                 break;
             default:
@@ -117,6 +110,10 @@ main(int argc, char *argv[])
 
 
     //HM_LOG(INFO, "config file=%s\n", global_config_filename);
+
+    struct worker_manager *wm = hm_worker_init(global_config_filename);
+
+    hm_worker_test();
 
     return 0;
 }
