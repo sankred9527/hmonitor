@@ -2,7 +2,7 @@
 #include "all.h"
 #include "manager.h"
 
-struct rte_mempool *hm_worker_get_mbuf(struct worker_manager *wm, uint16_t port_id, uint16_t physical_socket_id) {
+struct rte_mempool *hm_manager_get_mbuf(struct worker_manager *wm, uint16_t port_id, uint16_t physical_socket_id) {
     struct rte_mempool **ret = &(wm->mbuf[0]);
 
     uint32_t offset = port_id*wm->nb_ports + physical_socket_id;
@@ -12,7 +12,7 @@ struct rte_mempool *hm_worker_get_mbuf(struct worker_manager *wm, uint16_t port_
     return ret[offset];
 }
 
-struct rte_mempool *hm_worker_set_mbuf(struct worker_manager *wm, struct rte_mempool *mbuf, uint16_t port_id, uint16_t physical_socket_id) {
+struct rte_mempool *hm_manager_set_mbuf(struct worker_manager *wm, struct rte_mempool *mbuf, uint16_t port_id, uint16_t physical_socket_id) {
     uint32_t offset = port_id*wm->nb_ports + physical_socket_id;
 
     if ( offset >= wm->nb_ports*wm->nb_sockets ) {
@@ -24,7 +24,131 @@ struct rte_mempool *hm_worker_set_mbuf(struct worker_manager *wm, struct rte_mem
     return mbuf;
 }
 
-struct worker_manager *hm_worker_init(char *config_filename)
+static const struct rte_eth_conf port_conf_default = {
+	.rxmode = {
+		.mq_mode = ETH_MQ_RX_RSS,
+		.max_rx_pkt_len = RTE_ETHER_MAX_LEN,
+	},
+	.txmode = {
+		.mq_mode = ETH_MQ_TX_NONE,
+	},
+	.rx_adv_conf = {
+		.rss_conf = {
+			//.rss_hf = ETH_RSS_IP | ETH_RSS_UDP | ETH_RSS_TCP | ETH_RSS_SCTP,
+			.rss_hf = ETH_RSS_IP ,
+		}
+	},
+};
+
+static inline int
+port_init(struct worker_manager *wm, uint16_t port)
+{
+    #define RX_RING_SIZE 1024
+    #define TX_RING_SIZE 1024
+    struct rte_eth_conf port_conf;
+	const uint16_t rx_rings = 2, tx_rings = 3;
+	uint16_t nb_rxd = RX_RING_SIZE;
+	uint16_t nb_txd = TX_RING_SIZE;
+	int retval;
+	uint16_t q;
+	struct rte_eth_dev_info dev_info;
+	struct rte_eth_txconf txconf;
+    struct rte_mempool *mbuf;
+
+    if ( port >= wm->nb_ports )
+        rte_exit(-1, "port init : port wrong=%d\n", port);
+
+	if (!rte_eth_dev_is_valid_port(port))
+		return -1;
+
+	retval = rte_eth_dev_info_get(port, &dev_info);
+	if (retval != 0)
+		rte_exit(-1, "Error during getting device (port %u) info: %s\n", port, strerror(-retval));		
+    
+	if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE)
+		port_conf.txmode.offloads |=
+			DEV_TX_OFFLOAD_MBUF_FAST_FREE;    
+
+	port_conf.rx_adv_conf.rss_conf.rss_hf &=
+		dev_info.flow_type_rss_offloads;
+	if (port_conf.rx_adv_conf.rss_conf.rss_hf !=
+			port_conf_default.rx_adv_conf.rss_conf.rss_hf) {
+		HM_LOG(WARNING,"Port %u modified RSS hash function based on hardware support,"
+			"requested:%#"PRIx64" configured:%#"PRIx64"\n",
+			port,
+			port_conf_default.rx_adv_conf.rss_conf.rss_hf,
+			port_conf.rx_adv_conf.rss_conf.rss_hf);
+	}
+
+	/* Configure the Ethernet device. */	
+	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
+	if (retval != 0)
+		return retval;
+
+	retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
+	if (retval != 0)
+		return retval;    
+
+    //TODO:
+    int port_socket_id = rte_eth_dev_socket_id(port);
+	mbuf = rte_pktmbuf_pool_create("MBUF_POOL", 8191 * 16,
+		250, 0, RTE_MBUF_DEFAULT_BUF_SIZE, port_socket_id);
+
+    if ( NULL == hm_manager_set_mbuf(wm, mbuf, port, port_socket_id) )
+        rte_exit(-1, "hm_manager_set_mbuf wrong: %d %d\n", port, port_socket_id);
+
+	/* Allocate and set up RX queue per Ethernet port. */
+	for (q = 0; q < rx_rings; q++) {
+		retval = rte_eth_rx_queue_setup(port, q, nb_rxd, port_socket_id , NULL, mbuf);
+		if (retval < 0)
+			return retval;
+	}    
+
+	txconf = dev_info.default_txconf;
+	txconf.offloads = port_conf.txmode.offloads;
+	/* Allocate and set up 1 TX queue per Ethernet port. */
+	for (q = 0; q < tx_rings; q++) {
+		retval = rte_eth_tx_queue_setup(port, q, nb_txd, port_socket_id, &txconf);
+		if (retval < 0)
+			return retval;
+	}
+
+	/* Start the Ethernet port. */
+	retval = rte_eth_dev_start(port);
+	if (retval < 0)
+		return retval;
+
+	/* Display the port MAC address. */
+	struct rte_ether_addr addr;
+	retval = rte_eth_macaddr_get(port, &addr);
+	if (retval != 0)
+		return retval;
+
+	HM_INFO("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
+			   " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+			port,
+			addr.addr_bytes[0], addr.addr_bytes[1],
+			addr.addr_bytes[2], addr.addr_bytes[3],
+			addr.addr_bytes[4], addr.addr_bytes[5]);
+
+	/* Enable RX in promiscuous mode for the Ethernet device. */
+	retval = rte_eth_promiscuous_enable(port);
+	if (retval != 0)
+		return retval;
+	return 0;
+}
+
+void hm_manager_port_init(struct worker_manager *wm)
+{
+    uint16_t portid;
+    RTE_ETH_FOREACH_DEV(portid) {
+        if (port_init(wm, portid) != 0)
+            rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n", portid);
+    }
+    
+}
+
+struct worker_manager *hm_manager_init(char *config_filename)
 {
     uint16_t nb_ports;
     uint16_t port;
@@ -50,11 +174,15 @@ struct worker_manager *hm_worker_init(char *config_filename)
 
     HM_INFO("malloc mbuf addr=%p, size=%d\n", wm->mbuf, sizeof(struct rte_mempool *) * nb_sockets * nb_ports );
     memset(wm->mbuf, 0 , sizeof(struct rte_mempool *) * nb_sockets * nb_ports );
+
+    wm->core_queue_maps = calloc( sizeof(struct _core_queue_maps), MAX_TOTAL_QUEUE);
+    if ( wm->core_queue_maps == NULL )
+        rte_exit(-1, "malloc worker manager core_queue_maps failed\n");    
     
     return wm;
 }
 
-void hm_worker_test()
+void hm_manager_test()
 {
     uint16_t nb_ports;
     uint16_t port_id;

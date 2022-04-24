@@ -27,7 +27,7 @@ static: build/$(APP)-static
 
 #CFLAGS += -O3 $(shell $(PKGCONF) --cflags libdpdk)
 CFLAGS += -O0 -g  $(shell $(PKGCONF) --cflags libdpdk)
-LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk)
+LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk) lib/libconfig.a
 LDFLAGS_STATIC = $(shell $(PKGCONF) --static --libs libdpdk)
 
 CFLAGS += -DALLOW_EXPERIMENTAL_API

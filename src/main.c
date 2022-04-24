@@ -10,6 +10,7 @@
 #include <rte_mbuf.h>
 #include <getopt.h>
 #include "manager.h"
+#include "hmconfig.h"
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
@@ -109,11 +110,13 @@ main(int argc, char *argv[])
 		rte_exit(EXIT_FAILURE, "Invalid hmonitor arguments\n");
 
 
-    //HM_LOG(INFO, "config file=%s\n", global_config_filename);
+    HM_LOG(INFO, "config file=%s\n", global_config_filename);
 
-    struct worker_manager *wm = hm_worker_init(global_config_filename);
+	hm_config_init(global_config_filename);
 
-    hm_worker_test();
+    struct worker_manager *wm = hm_manager_init(global_config_filename);
+
+    hm_manager_test();
 
     return 0;
 }
