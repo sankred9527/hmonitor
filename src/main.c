@@ -22,7 +22,7 @@
 
 
 
-static rte_atomic16_t global_exit_flag ;
+rte_atomic16_t global_exit_flag ;
 
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = {
@@ -39,16 +39,19 @@ static const struct rte_eth_conf port_conf_default = {
 	},
 };
 
-static const char short_options[] =
-	"f:"  /* config file path */	
-	"T:"  /* timer period */
-	;
 
 static char *global_config_filename = NULL;
+static char *global_coreport_filename = NULL;
 
 static int
 hm_parse_args(int argc, char **argv)
 {
+	const char short_options[] =
+	"f:"  /* config file path */	
+	"q:"  /* config file path */
+	"T:"  /* timer period */
+	;
+
 	int opt, ret, timer_secs;
 	char **argvopt;
 	int option_index;
@@ -63,6 +66,9 @@ hm_parse_args(int argc, char **argv)
 	    	case 'f':
                 global_config_filename = optarg;
                 break;
+			case 'q':
+                global_coreport_filename = optarg;
+                break;				
             default:
                 break;
         }    
@@ -112,11 +118,17 @@ main(int argc, char *argv[])
 
     HM_LOG(INFO, "config file=%s\n", global_config_filename);
 
-	hm_config_init(global_config_filename);
+	hm_config_init(global_config_filename, global_coreport_filename);
 
     struct worker_manager *wm = hm_manager_init(global_config_filename);
 
-    hm_manager_test();
+	hm_manager_port_init(wm);
+
+	hm_manager_start_run(wm);
+
+	hm_manager_wait_stop(wm);
+
+    //hm_manager_test();
 
     return 0;
 }

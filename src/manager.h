@@ -11,9 +11,9 @@
 #include <rte_cycles.h>
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
+#include "hmconfig.h"
 
 
-#define MAX_TOTAL_QUEUE (128)
 
 struct hm_port {
     uint16_t port_id;
@@ -37,6 +37,8 @@ struct worker_manager {
 struct worker_manager *hm_manager_init(char *config_filename);
 struct rte_mempool *hm_manager_get_mbuf(struct worker_manager *wm, uint16_t port_id, uint16_t physical_socket_id);
 struct rte_mempool *hm_manager_set_mbuf(struct worker_manager *wm, struct rte_mempool *mbuf, uint16_t port_id, uint16_t physical_socket_id);
+void hm_manager_start_run(struct worker_manager *wm);
+void hm_manager_wait_stop(struct worker_manager *wm);
 
 void hm_manager_test();
 
