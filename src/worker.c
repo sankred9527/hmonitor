@@ -61,10 +61,9 @@ static void hm_hash_add_all_domain()
             char *value = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);            
             strncpy(key, conf->domains[i]->domain, HM_MAX_DOMAIN_LEN);
             strncpy(value,conf->domains[i]->target, HM_MAX_DOMAIN_LEN);
-            printf("key=%s value=%s\n", key, value);
             int ret = rte_hash_add_key_data(global_domain_hash_sockets[socket], key, value);                     
             if ( ret < 0 )
-                printf("add hash key failed\n");
+                HM_INFO("add hash key failed\n");
         }        
     }
 }
