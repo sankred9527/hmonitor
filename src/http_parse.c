@@ -3,7 +3,7 @@
 #include "http_parse.h"
 
 
-inline bool __attribute__((always_inline)) 
+inline bool 
 get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length)
 {
     if( unlikely(content == NULL || content_length == 0 || host_length == NULL) )

@@ -25,8 +25,8 @@ shared: build/$(APP)-shared
 static: build/$(APP)-static
 	ln -sf $(APP)-static build/$(APP)
 
-#CFLAGS += -O3 $(shell $(PKGCONF) --cflags libdpdk)
-CFLAGS += -O0 -g  $(shell $(PKGCONF) --cflags libdpdk)
+CFLAGS += -O3 $(shell $(PKGCONF) --cflags libdpdk)
+#CFLAGS += -O0 -g  $(shell $(PKGCONF) --cflags libdpdk) -mavx512vl
 LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk) lib/libconfig.a
 LDFLAGS_STATIC = $(shell $(PKGCONF) --static --libs libdpdk)
 
