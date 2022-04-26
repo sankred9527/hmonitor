@@ -11,16 +11,33 @@
 #include <rte_launch.h>
 #include <rte_lcore.h>
 #include <rte_log.h>
-#include <rte_mempool.h>
+#include <rte_malloc.h>
 #include <rte_node_eth_api.h>
 #include <rte_node_ip4_api.h>
 #include <rte_per_lcore.h>
 #include <rte_string_fns.h>
 #include <rte_vect.h>
+#include "http_parse.h"
 
 #define BURST_SIZE 32
 
 extern rte_atomic16_t global_exit_flag ;
+extern int global_work_type;
+
+FILE * hplog_init(int core_id)
+{
+    char fn[32];
+    snprintf(fn,32,"httplog_%d.log", core_id);
+    FILE *fp = fopen(fn, "w+");
+
+    return fp;
+}
+
+void hplog_append_line(FILE* fp,char *data, size_t len)
+{
+    fwrite(data, len, 1, fp);    
+}
+
 
 static inline size_t
 get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
@@ -44,12 +61,90 @@ get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
     return vlan_offset;
 }
 
+
+inline bool __attribute__((always_inline))
+ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
+                    uint16_t pid, uint16_t qid, char *data, size_t data_len, size_t request_data_len)
+{
+	//struct ether_addr tmpEthAddr;
+	uint16_t ether_type,offset;
+	struct rte_ipv4_hdr *ip_hdr;
+	int ipv4_hdr_len, tcp_hdr_len;
+
+    struct rte_mbuf *mbuf = rte_pktmbuf_alloc(originalMbuf->pool);
+    mbuf->packet_type = originalMbuf->packet_type;
+    mbuf->hash.rss = originalMbuf->hash.rss;
+
+    struct rte_ether_hdr *new_ether_hdr = (struct rte_ether_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ether_hdr));    
+	//fill_ethernet_header
+    {
+        rte_memcpy(new_ether_hdr, eth_hdr, sizeof(struct rte_ether_hdr));
+	    new_ether_hdr->s_addr = eth_hdr->d_addr;
+	    new_ether_hdr->d_addr = eth_hdr->s_addr;	    
+    }
+
+	struct rte_ipv4_hdr *new_ipv4_hdr = (struct rte_ipv4_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ipv4_hdr));
+	//fill_ipv4_header(new_ipv4_hdr);
+    {
+        rte_memcpy(new_ipv4_hdr, ipv4_hdr, sizeof(struct rte_ipv4_hdr));
+        new_ipv4_hdr->src_addr = ipv4_hdr->dst_addr;
+        new_ipv4_hdr->dst_addr = ipv4_hdr->src_addr;
+        new_ipv4_hdr->version_ihl = IPVERSION << 4 | sizeof(struct rte_ipv4_hdr) / RTE_IPV4_IHL_MULTIPLIER,
+        //printf("old ipv4 hdr=%d %d\n", ipv4_hdr->version_ihl, new_ipv4_hdr->version_ihl);
+        //printf("old ipv4 total len=%d\n", rte_be_to_cpu_16(ipv4_hdr->total_length));
+
+        new_ipv4_hdr->type_of_service = 0; // No Diffserv
+        new_ipv4_hdr->total_length = rte_cpu_to_be_16( sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr) + data_len);
+        new_ipv4_hdr->packet_id = rte_cpu_to_be_16(5462); // set random
+        new_ipv4_hdr->fragment_offset = rte_cpu_to_be_16(0);
+        new_ipv4_hdr->time_to_live = 64;
+        new_ipv4_hdr->next_proto_id = IPPROTO_TCP; // tcp
+        //new_ipv4_hdr->hdr_checksum = rte_cpu_to_be_16(25295);
+    }
+
+    struct rte_tcp_hdr *new_tcp_hdr = (struct rte_tcp_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_tcp_hdr));
+	//fill_tcp_header
+    {
+    	uint32_t seq_tmp;
+	    seq_tmp = tcphdr->recv_ack;
+	    new_tcp_hdr->recv_ack = rte_cpu_to_be_32(rte_be_to_cpu_32(tcphdr->sent_seq) + request_data_len);
+	    new_tcp_hdr->sent_seq = seq_tmp;
+	    new_tcp_hdr->tcp_flags = RTE_TCP_ACK_FLAG | RTE_TCP_PSH_FLAG;
+        new_tcp_hdr->src_port = tcphdr->dst_port;
+        new_tcp_hdr->dst_port = tcphdr->src_port;
+        new_tcp_hdr->rx_win = rte_cpu_to_be_16(256);
+        new_tcp_hdr->data_off =  sizeof(struct rte_tcp_hdr) / 4 << 4;
+        new_tcp_hdr->tcp_urp = 0;
+
+        // do cksum later
+    }
+    char *content = (char *) rte_pktmbuf_append(mbuf, data_len);
+    rte_memcpy(content, data, data_len);
+
+    new_ipv4_hdr->hdr_checksum = 0;
+    new_tcp_hdr->cksum = 0;
+    new_ipv4_hdr->hdr_checksum = rte_ipv4_cksum(new_ipv4_hdr);
+    new_tcp_hdr->cksum = rte_ipv4_udptcp_cksum(new_ipv4_hdr, new_tcp_hdr);
+
+    uint16_t ret = rte_eth_tx_burst(pid, qid, &mbuf, 1);
+	if (ret <= 0)
+		printf("Send failed..\n");
+    else
+    {
+        //printf("send cnt=%d\n",ret);
+    }
+    
+    return true;
+}
+
+
 static inline bool is_rx_port(struct port_params *port_param) 
 {
     return port_param->tx_port >= 0;
 }
 
-void hm_worker_run(void *dummy)
+
+void _hm_worker_run(void *dummy)
 {
 	uint32_t lcore_id;
     uint16_t queue_id;
@@ -63,14 +158,13 @@ void hm_worker_run(void *dummy)
         HM_INFO("lcore can't get port param\n");
         return;
     }
-    
-    HM_INFO("lcore=%d lcore index=%d, queue id=%d\n", lcore_id, rte_lcore_index(-1), queue_id);
+        
 	uint16_t port = port_param->port_id;
     if ( !is_rx_port(port_param) ) {
         HM_INFO("port(%d) is tx port , return\n", port);
         return;
     } else {
-        //HM_INFO("port(%d) is rx port\n", port);
+        HM_INFO("lcore=%d lcore index=%d, port=%d, queue id=%d\n", lcore_id, rte_lcore_index(-1), port, queue_id);
     }
 
     if (rte_eth_dev_socket_id(port) != port_param->physical_socket ) {
@@ -89,6 +183,10 @@ void hm_worker_run(void *dummy)
                 "polling thread.\n\tPerformance will "
                 "not be optimal.\n", port);
 
+    uint64_t total_pkts = 0;
+    FILE *log_fp = hplog_init(lcore_id);
+    const size_t log_data_size = 2048;
+    char *log_data = rte_malloc_socket("logdata", log_data_size, 64, rte_socket_id());    
 	while ( !rte_atomic16_read(&global_exit_flag) ) 
     {
 
@@ -98,6 +196,8 @@ void hm_worker_run(void *dummy)
 
 		if (unlikely(nb_rx == 0))
 			continue;
+        
+        total_pkts += nb_rx;
 
 		int n = 0;		
         for (; n< nb_rx;n++)
@@ -128,27 +228,39 @@ void hm_worker_run(void *dummy)
             if (ipv4_hdr->next_proto_id == IPPROTO_TCP) {
                 struct rte_tcp_hdr *tcp = (struct rte_tcp_hdr *)((unsigned char *)ipv4_hdr + ipv4_hdr_len);					
                 uint16_t dst_port = rte_be_to_cpu_16(tcp->dst_port);
-                //if ( dst_port == 5020 ) {
-                if ( dst_port > 0 ) {
+                if ( dst_port == 5020 ) {
+                //if ( dst_port > 0 ) {
                     //printf("t1=%d %d\n", ipv4_hdr_len , sizeof(struct rte_ipv4_hdr) );
                     //printf("find my port(%d) flag=%d vlan_offset=%d\n", rx_port_id, tcp->tcp_flags, offset);
                     uint32_t tcp_head_len = (tcp->data_off & 0xf0) >> 2;
                     unsigned char *content = (unsigned char*)tcp + tcp_head_len;
                     uint32_t content_len = ip_total_len - ipv4_hdr_len - tcp_head_len;
-
-                    char data[1024];
-                    size_t data_len = 1024;
+                    
+                    size_t host_len = 0;
                     char *host = NULL;
-                    if (get_http_host(content, content_len, &host, &data_len)) {
-                        //printf("tcp content len=%d, start send hook response\n", content_len);
-                        //dump_packet_meta(eth_hdr, ipv4_hdr);                        
-                        memcpy(data, host, data_len);
-                        data[data_len] = '\0';
-                        printf("log host=%s\n", data);
-                        printf("log nq=%d core=%d\n", queue_id,lcore_id);
-                        //hplog_append_line(fp, host, data_len);
-
-                    }                    
+                    char *url = NULL;
+                    size_t url_length = 0;
+                    if ( global_work_type == 0 ) {
+                        //log http host
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {                                                        
+                            if ( host_len + 1 + url_length > log_data_size )
+                                continue;
+                            rte_memcpy(log_data, host, host_len);
+                            log_data[host_len] = ' ';
+                            rte_memcpy(log_data + host_len + 1 , url , url_length);
+                            log_data[host_len + 1 + url_length] = '\n';
+                            hplog_append_line(log_fp, log_data, host_len + 1 + url_length + 1);
+                        }
+                    } else if ( global_work_type == 1 ) {
+                        //hook http host
+                        size_t data_len = log_data_size;
+                        //HM_INFO("tcp content len=%d, start send hook response\n", content_len);
+                        if (hook_http_response_fast(content, content_len, log_data, &data_len)) {
+                            uint16_t tx_queue_id = 0;
+                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, log_data, data_len, content_len);
+                        }
+                    }
+                    
                     #if 0
                     if (hook_http_response_fast(content, content_len, data, &data_len)) {
                         HM_INFO("tcp content len=%d, start send hook response\n", content_len);
@@ -167,4 +279,11 @@ void hm_worker_run(void *dummy)
 			rte_pktmbuf_free(bufs[nb]);		
 	} // end while(...)
 
+    HM_INFO("core(%d) total packets=%d \n",lcore_id, total_pkts);
+}
+
+int hm_worker_run(void *dummy)
+{
+    _hm_worker_run(dummy);
+    return 0;
 }

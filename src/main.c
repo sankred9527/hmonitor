@@ -42,6 +42,8 @@ static const struct rte_eth_conf port_conf_default = {
 
 static char *global_config_filename = NULL;
 static char *global_coreport_filename = NULL;
+static bool global_dump_info = false;
+int global_work_type = -1;
 
 static int
 hm_parse_args(int argc, char **argv)
@@ -50,6 +52,8 @@ hm_parse_args(int argc, char **argv)
 	"f:"  /* config file path */	
 	"q:"  /* config file path */
 	"T:"  /* timer period */
+	"d"   /* dump port info */
+	"w:"  /* work type */
 	;
 
 	int opt, ret, timer_secs;
@@ -68,11 +72,27 @@ hm_parse_args(int argc, char **argv)
                 break;
 			case 'q':
                 global_coreport_filename = optarg;
-                break;				
+                break;
+			case 'd':
+				global_dump_info = true;
+				break;
+			case 'w':
+				if ( strcmp(optarg, "log") == 0 )
+					global_work_type = 0;
+				else if ( strcmp(optarg, "hook") == 0)				
+					global_work_type = 1;
+				else {
+					rte_exit(-1, "work type (-w) must be log or hook\n");
+				}
+				break;
             default:
                 break;
         }    
     }
+
+	if ( global_work_type < 0 ) {
+		rte_exit(-1, "work type (-w) must be 'log' or 'hook'\n");
+	}
 
     return 0;
 }
@@ -115,6 +135,10 @@ main(int argc, char *argv[])
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid hmonitor arguments\n");
 
+	if ( global_dump_info ) {
+		hm_manager_test();
+		return 0;
+	}
 
     HM_LOG(INFO, "config file=%s\n", global_config_filename);
 

@@ -3,9 +3,10 @@
 #include "http_parse.h"
 
 
-bool get_http_host(char *content, size_t content_length, char **retval, size_t *ret_length)
+inline bool __attribute__((always_inline)) 
+get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length)
 {
-    if( unlikely(content == NULL || content_length == 0 || ret_length == NULL) )
+    if( unlikely(content == NULL || content_length == 0 || host_length == NULL) )
         return false;
 
     //采用整数，加速匹配
@@ -21,8 +22,37 @@ bool get_http_host(char *content, size_t content_length, char **retval, size_t *
     if (field != http_get)
         return false;
     n += 4;
+
+    int url_start = -1;
+    int url_end = -1;
+    //find the url of "GET" line
+    for (; n < content_length; n++) {
+        if ( p[n] != ' ' && p[n] != '\n' && p[n] != '\r' ) {
+            url_start = n;
+            break;
+        } else if ( p[n] == '\r' || p[n] == '\n' )
+            break;
+    }
+
+    if ( unlikely(url_start == -1 ) )
+        return false;
     
-    for (; n < content_length; n++) {        
+    for (; n < content_length; n++ ) {
+        if ( p[n] == ' ') {
+            url_end = n - 1;
+            break;
+        } else if ( p[n] == '\r' || p[n] == '\n' )
+            break;
+    }
+
+    if ( unlikely(url_end == -1 ) )
+        return false;
+
+    *url_length = url_end - url_start + 1;
+    *url = content + url_start;
+    
+    //find the "Host" line
+    for (; n < content_length; n++) {
         if ( p[n-1] == '\n' ) {
             field = rte_be_to_cpu_32(*(uint32_t*)(p+n));
             if ( field == http_host1 || field == http_host2 ){
@@ -35,12 +65,11 @@ bool get_http_host(char *content, size_t content_length, char **retval, size_t *
     if ( find_host == false )
         return false;
 
-    printf("find host\n");
     /*
         p[n] == "Host", now check  "Host: "
     */
    if (!( (n+5)<=content_length-1 && p[n+4] == ':' && p[n+5] == ' ' ))  {
-       printf("%d %c %c\n", (n+5)<=content_length-1, p[n+4], p[n+5]);
+       //printf("%d %c %c\n", (n+5)<=content_length-1, p[n+4], p[n+5]);
        return false;
    }
    
@@ -60,7 +89,7 @@ bool get_http_host(char *content, size_t content_length, char **retval, size_t *
     }
 
     if ( unlikely(host_end == NULL) ) {
-        printf("host_end is null\n");
+        //printf("host_end is null\n");
         return false;
     }
 
@@ -79,18 +108,41 @@ bool get_http_host(char *content, size_t content_length, char **retval, size_t *
     
     //include the zero bytes in tail 
     int len = host_end - host_start + 1;
-    if ( (len+1) > *ret_length ) {
+    if ( (len+1) > *host_length ) {
         return false;
     }
-    *retval = host_start;
-    *ret_length = len;
+    *host = host_start;
+    *host_length = len;
     return true;
 }
 
 bool hook_http_response_fast(char *content, size_t content_length, char *retval, size_t *ret_length)
 {
+    char *url;
+    size_t url_length;
+    char *host;
+    size_t host_len;
+    if ( !get_http_host(content, content_length, &host, &host_len, &url, &url_length) )
+        return false;
 
-    //get_http_host(content, content_length, retval, ret_length);
+    bool need_hook = false;
+    char *hook_host[] = {         
+        "119.9.94.40"
+    };
+    size_t hook_host_len = sizeof(hook_host)/sizeof(char*);
+    int n = 0;
+    for (n=0; n < hook_host_len; n++) {
+        if ( strncasecmp(host, hook_host[n], host_len) == 0 ) {
+            need_hook = true;
+            break;
+        }
+    }
+    if ( !need_hook )
+        return false;
+
+    const char *response_format = "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
+    *ret_length = snprintf(retval, *ret_length, response_format, "http://www.baidu.com" );
+
     return true;
 }
 

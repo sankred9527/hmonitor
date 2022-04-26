@@ -13,7 +13,7 @@ struct hm_config *global_hm_config;
 
 struct port_params *hm_config_get_port_param(uint16_t port){
     int n ;
-    for (n;n< HM_MAX_ETHPORTS;n++)
+    for (n=0; n< HM_MAX_ETHPORTS; n++)
         if ( global_hm_config->port_config[n]->port_id == port )
             return global_hm_config->port_config[n];
     return NULL;
