@@ -128,7 +128,7 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
 
     uint16_t ret = rte_eth_tx_burst(pid, qid, &mbuf, 1);
 	if (ret <= 0)
-		printf("Send failed..\n");
+		HM_LOG(ERR, "Send failed..\n");
     else
     {
         //printf("send cnt=%d\n",ret);
@@ -228,8 +228,8 @@ void _hm_worker_run(void *dummy)
             if (ipv4_hdr->next_proto_id == IPPROTO_TCP) {
                 struct rte_tcp_hdr *tcp = (struct rte_tcp_hdr *)((unsigned char *)ipv4_hdr + ipv4_hdr_len);					
                 uint16_t dst_port = rte_be_to_cpu_16(tcp->dst_port);
-                if ( dst_port == 5020 ) {
-                //if ( dst_port > 0 ) {
+                //if ( dst_port == 5020 ) {
+                if ( dst_port > 0 ) {
                     //printf("t1=%d %d\n", ipv4_hdr_len , sizeof(struct rte_ipv4_hdr) );
                     //printf("find my port(%d) flag=%d vlan_offset=%d\n", rx_port_id, tcp->tcp_flags, offset);
                     uint32_t tcp_head_len = (tcp->data_off & 0xf0) >> 2;
@@ -241,8 +241,8 @@ void _hm_worker_run(void *dummy)
                     char *url = NULL;
                     size_t url_length = 0;
                     if ( global_work_type == 0 ) {
-                        //log http host
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {                                                        
+                        //log http host                        
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {                            
                             if ( host_len + 1 + url_length > log_data_size )
                                 continue;
                             rte_memcpy(log_data, host, host_len);
@@ -255,21 +255,12 @@ void _hm_worker_run(void *dummy)
                         //hook http host
                         size_t data_len = log_data_size;
                         //HM_INFO("tcp content len=%d, start send hook response\n", content_len);
+                        //dump_packet_meta(eth_hdr, ipv4_hdr);
                         if (hook_http_response_fast(content, content_len, log_data, &data_len)) {
                             uint16_t tx_queue_id = 0;
                             ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, log_data, data_len, content_len);
                         }
-                    }
-                    
-                    #if 0
-                    if (hook_http_response_fast(content, content_len, data, &data_len)) {
-                        HM_INFO("tcp content len=%d, start send hook response\n", content_len);
-                        dump_packet_meta(eth_hdr, ipv4_hdr);
-                        HM_INFO("hook ok=%s\n", data);
-                        //tx 
-                        //modify_and_send_packet(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, 0, data, data_len, content_len);
-                    }
-                    #endif
+                    }                                    
                 }
             }
         

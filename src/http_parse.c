@@ -72,7 +72,7 @@ get_http_host(char *content, size_t content_length, char **host, size_t *host_le
        //printf("%d %c %c\n", (n+5)<=content_length-1, p[n+4], p[n+5]);
        return false;
    }
-   
+
     n = n + 6;
     uint8_t *host_start = p + n;
     uint8_t *host_end = NULL;
@@ -105,12 +105,8 @@ get_http_host(char *content, size_t content_length, char **host, size_t *host_le
             break;
         }
     }
-    
-    //include the zero bytes in tail 
+
     int len = host_end - host_start + 1;
-    if ( (len+1) > *host_length ) {
-        return false;
-    }
     *host = host_start;
     *host_length = len;
     return true;
