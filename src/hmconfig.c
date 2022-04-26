@@ -183,21 +183,7 @@ load_domain_config(char *config_file) {
             HM_LOG(INFO, "domain: %s --> target: %s\n", conf->domains[i]->domain, conf->domains[i]->target);
         }
         conf->domains_count = i;
-        HM_LOG(INFO, "total: %d domains\n", conf->domains_count);
-
-        // create hash table for domains
-        if(!hcreate(conf->domains_count)) {
-            HM_LOG(ERR, "\ncreate hash table for %d domains failed, exit.\n", conf->domains_count);
-            exit(EXIT_FAILURE);
-        }
-
-        ENTRY item;
-        for(i=0; i<conf->domains_count; i++) {
-            item.key = conf->domains[i]->domain;
-            item.data = conf->domains[i]->target;
-            
-            (void) hsearch(item, ENTER);
-        }
+        HM_LOG(INFO, "total: %d domains\n", conf->domains_count);        
     }    
     config_destroy(&cfg);
     return conf;
@@ -232,6 +218,7 @@ static void dump_port_config() {
     }
 }
 
+extern void hm_hash_init();
 
 int hm_config_init(char *domain_config_file, char *coreport_config_file)
 {
@@ -244,6 +231,8 @@ int hm_config_init(char *domain_config_file, char *coreport_config_file)
     if ( !load_core_port_config(coreport_config_file, global_hm_config->port_config, RTE_MAX_ETHPORTS) ){
         rte_exit(-1, "load coreport config failed\n");
     }
+
+    hm_hash_init();
 
 #if 0
     uint16_t qid;

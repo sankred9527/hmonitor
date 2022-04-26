@@ -17,12 +17,100 @@
 #include <rte_per_lcore.h>
 #include <rte_string_fns.h>
 #include <rte_vect.h>
+#include <rte_hash.h>
+#include <rte_jhash.h>
+#include <rte_errno.h>
 #include "http_parse.h"
+#include "hmconfig.h"
 
 #define BURST_SIZE 32
 
 extern rte_atomic16_t global_exit_flag ;
 extern int global_work_type;
+extern struct hm_config *global_hm_config;
+extern struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
+
+static struct rte_hash * hm_hash_create(int socketid){
+
+    if ( socketid >= HM_MAX_CPU_SOCKET)
+        rte_exit(-1, "max cpu limit exceeded\n");
+    
+
+    char *name = malloc(32);
+    snprintf(name,32 , "hmhash%d", socketid);
+	struct rte_hash_parameters params_pseudo_hash = {        
+		.name = name,
+		.entries = 1024*512,
+		.key_len = HM_MAX_DOMAIN_LEN,
+		.hash_func = rte_jhash,
+		.hash_func_init_val = 0,
+		.socket_id = socketid,
+	};
+    return rte_hash_create(&params_pseudo_hash);
+}
+
+static void hm_hash_add_all_domain()
+{
+    int nb_sockets = rte_socket_count();
+    int socket;
+    const domain_conf_t* conf = global_hm_config->domain_config;    
+    for ( socket = 0 ; socket < nb_sockets; socket++) {
+        int i;
+        for(i=0; i<conf->domains_count; i++) {
+            char *key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);
+            char *value = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);            
+            strncpy(key, conf->domains[i]->domain, HM_MAX_DOMAIN_LEN);
+            strncpy(value,conf->domains[i]->target, HM_MAX_DOMAIN_LEN);
+            printf("key=%s value=%s\n", key, value);
+            int ret = rte_hash_add_key_data(global_domain_hash_sockets[socket], key, value);                     
+            if ( ret < 0 )
+                printf("add hash key failed\n");
+        }        
+    }
+}
+
+static void hm_hash_search(int socketid, char *key, void**data) {
+    if ( socketid >= HM_MAX_CPU_SOCKET ) {
+        return;
+    }
+    
+    struct rte_hash * h = global_domain_hash_sockets[socketid];
+    int ret = rte_hash_lookup_data(global_domain_hash_sockets[socketid], key, data);   
+		
+    return ;
+}
+
+static void hash_test(char *pad_key, char*host) {
+    int socket = rte_socket_id();
+    strncpy(pad_key, host, HM_MAX_DOMAIN_LEN);
+    char *data = NULL;
+    
+    hm_hash_search(socket, pad_key, (void**)&data );    
+    if (data == NULL ) {
+        HM_INFO("hash search failed\n");
+    } else {
+        HM_INFO("hash search=%s\n",data);
+    }
+
+}
+
+void hm_hash_init(){
+    int socket = 0;
+    for ( ; socket < HM_MAX_CPU_SOCKET; socket++) {
+        global_domain_hash_sockets[socket] = NULL;
+    }
+
+    int nb_sockets = rte_socket_count();
+    for ( socket = 0 ; socket < nb_sockets; socket++) {
+        global_domain_hash_sockets[socket] = hm_hash_create(socket);
+        if (global_domain_hash_sockets[socket] == NULL)
+		    rte_panic("Failed to create cdev_map hash table, errno = %d\n", rte_errno);
+    }
+
+    hm_hash_add_all_domain();
+}
+
+
 
 FILE * hplog_init(int core_id)
 {
@@ -149,6 +237,8 @@ void _hm_worker_run(void *dummy)
 	uint32_t lcore_id;
     uint16_t queue_id;
 	lcore_id = rte_lcore_id();
+    char *pad_key = NULL;
+
 
     if ( lcore_id == rte_get_main_lcore() )
         return;
@@ -183,6 +273,10 @@ void _hm_worker_run(void *dummy)
                 "polling thread.\n\tPerformance will "
                 "not be optimal.\n", port);
 
+    pad_key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , rte_socket_id());
+    //hash_test(pad_key, "www.163.com");
+
+    int self_socket = rte_socket_id();
     uint64_t total_pkts = 0;
     FILE *log_fp = hplog_init(lcore_id);
     const size_t log_data_size = 2048;
@@ -256,11 +350,20 @@ void _hm_worker_run(void *dummy)
                         size_t data_len = log_data_size;
                         //HM_INFO("tcp content len=%d, start send hook response\n", content_len);
                         //dump_packet_meta(eth_hdr, ipv4_hdr);
-                        if (hook_http_response_fast(content, content_len, log_data, &data_len)) {
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {
+                            memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
+                            memcpy(pad_key, host, host_len);
+                            char *target; 
+                            hm_hash_search(self_socket, pad_key, (void**)&target );    
+                            if ( likely(target == NULL) )
+                                continue;
+                            const char *response_format = "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
+                            int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
+
                             uint16_t tx_queue_id = 0;
-                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, log_data, data_len, content_len);
+                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len);
                         }
-                    }                                    
+                    }
                 }
             }
         

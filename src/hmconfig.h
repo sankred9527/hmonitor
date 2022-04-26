@@ -8,6 +8,7 @@
 #define HM_MAX_PORT_QUEUE (32)
 #define HM_MAX_DOMAINS (8192)
 #define HM_MAX_DOMAIN_LEN (1024)
+#define HM_MAX_CPU_SOCKET (32)
 
 typedef struct {
     char* domain;
