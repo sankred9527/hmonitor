@@ -180,7 +180,7 @@ load_domain_config(char *config_file) {
             
             strncpy(conf->domains[i]->domain, _domain, strlen(_domain));
             strncpy(conf->domains[i]->target, _target, strlen(_target));
-            HM_LOG(INFO, "domain: %s --> target: %s\n", conf->domains[i]->domain, conf->domains[i]->target);
+            //HM_LOG(INFO, "domain: %s --> target: %s\n", conf->domains[i]->domain, conf->domains[i]->target);
         }
         conf->domains_count = i;
         HM_LOG(INFO, "total: %d domains\n", conf->domains_count);        
