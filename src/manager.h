@@ -39,7 +39,7 @@ struct rte_mempool *hm_manager_get_mbuf(struct worker_manager *wm, uint16_t port
 struct rte_mempool *hm_manager_set_mbuf(struct worker_manager *wm, struct rte_mempool *mbuf, uint16_t port_id, uint16_t physical_socket_id);
 void hm_manager_start_run(struct worker_manager *wm);
 void hm_manager_wait_stop(struct worker_manager *wm);
-
+void hm_manager_port_stat(void);
 void hm_manager_test();
 
 

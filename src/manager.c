@@ -173,6 +173,39 @@ void hm_manager_port_init(struct worker_manager *wm)
     
 }
 
+void hm_manager_port_stat(void)
+{
+    uint16_t portid;
+    RTE_ETH_FOREACH_DEV(portid) {        
+        struct rte_eth_stats stat_info;
+        int stat;
+        if (!rte_eth_dev_is_valid_port(portid)) {
+            HM_INFO("Error: Invalid port number %i\n", portid);
+            return;
+        }
+        stat = rte_eth_stats_get(portid, &stat_info);
+        if (stat == 0) {
+            HM_INFO("Port %i stats\n", portid);
+            HM_INFO("   In: %" PRIu64 " (%" PRIu64 " bytes)\n"
+                "  Out: %"PRIu64" (%"PRIu64 " bytes)\n"
+                "  RX-missed: %"PRIu64"\n"
+                "  Err: %"PRIu64"\n",
+                stat_info.ipackets,
+                stat_info.ibytes,
+                stat_info.opackets,
+                stat_info.obytes,
+                stat_info.imissed,
+                stat_info.ierrors+stat_info.oerrors
+                );
+        } else if (stat == -ENOTSUP)
+            HM_INFO("Port %i: Operation not supported\n", portid);
+        else
+            HM_INFO("Port %i: Error fetching statistics\n", portid);        
+    }
+    
+}
+
+
 struct worker_manager *hm_manager_init(char *config_filename)
 {
     uint16_t nb_ports;
@@ -210,6 +243,8 @@ void hm_manager_start_run(struct worker_manager *wm) {
 void hm_manager_wait_stop(struct worker_manager *wm){
     int portid;
     rte_eal_mp_wait_lcore();
+
+    hm_manager_port_stat();
 
     RTE_ETH_FOREACH_DEV(portid) {        
         HM_INFO("Closing port %d...", portid);
