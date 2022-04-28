@@ -1,27 +1,5 @@
-
-#include "all.h"
 #include "worker.h"
-#include "hmconfig.h"
-#include <rte_branch_prediction.h>
-#include <rte_common.h>
-#include <rte_cycles.h>
-#include <rte_eal.h>
-#include <rte_ethdev.h>
-#include <rte_graph_worker.h>
-#include <rte_launch.h>
-#include <rte_lcore.h>
-#include <rte_log.h>
-#include <rte_malloc.h>
-#include <rte_node_eth_api.h>
-#include <rte_node_ip4_api.h>
-#include <rte_per_lcore.h>
-#include <rte_string_fns.h>
-#include <rte_vect.h>
-#include <rte_hash.h>
-#include <rte_jhash.h>
-#include <rte_errno.h>
-#include "http_parse.h"
-#include "hmconfig.h"
+
 
 #define BURST_SIZE 32
 
@@ -34,11 +12,11 @@ static struct rte_hash * hm_hash_create(int socketid){
 
     if ( socketid >= HM_MAX_CPU_SOCKET)
         rte_exit(-1, "max cpu limit exceeded\n");
-    
+
 
     char *name = malloc(32);
     snprintf(name,32 , "hmhash%d", socketid);
-	struct rte_hash_parameters params_pseudo_hash = {        
+	struct rte_hash_parameters params_pseudo_hash = {
 		.name = name,
 		.entries = 1024*512,
 		.key_len = HM_MAX_DOMAIN_LEN,
@@ -53,18 +31,18 @@ static void hm_hash_add_all_domain()
 {
     int nb_sockets = rte_socket_count();
     int socket;
-    const domain_conf_t* conf = global_hm_config->domain_config;    
+    const domain_conf_t* conf = global_hm_config->domain_config;
     for ( socket = 0 ; socket < nb_sockets; socket++) {
         int i;
         for(i=0; i<conf->domains_count; i++) {
             char *key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);
-            char *value = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);            
+            char *value = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);
             strncpy(key, conf->domains[i]->domain, HM_MAX_DOMAIN_LEN);
             strncpy(value,conf->domains[i]->target, HM_MAX_DOMAIN_LEN);
-            int ret = rte_hash_add_key_data(global_domain_hash_sockets[socket], key, value);                     
+            int ret = rte_hash_add_key_data(global_domain_hash_sockets[socket], key, value);
             if ( ret < 0 )
                 HM_INFO("add hash key failed\n");
-        }        
+        }
     }
 }
 
@@ -72,10 +50,10 @@ static void hm_hash_search(int socketid, char *key, void**data) {
     if ( socketid >= HM_MAX_CPU_SOCKET ) {
         return;
     }
-    
+
     struct rte_hash * h = global_domain_hash_sockets[socketid];
-    int ret = rte_hash_lookup_data(global_domain_hash_sockets[socketid], key, data);   
-		
+    int ret = rte_hash_lookup_data(global_domain_hash_sockets[socketid], key, data);
+
     return ;
 }
 
@@ -83,8 +61,8 @@ static void hash_test(char *pad_key, char*host) {
     int socket = rte_socket_id();
     strncpy(pad_key, host, HM_MAX_DOMAIN_LEN);
     char *data = NULL;
-    
-    hm_hash_search(socket, pad_key, (void**)&data );    
+
+    hm_hash_search(socket, pad_key, (void**)&data );
     if (data == NULL ) {
         HM_INFO("hash search failed\n");
     } else {
@@ -122,7 +100,7 @@ FILE * hplog_init(int core_id)
 
 void hplog_append_line(FILE* fp,char *data, size_t len)
 {
-    fwrite(data, len, 1, fp);    
+    fwrite(data, len, 1, fp);
 }
 
 
@@ -149,7 +127,7 @@ get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
 }
 
 
-inline bool __attribute__((always_inline))
+static inline bool __attribute__((always_inline))
 ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
                     uint16_t pid, uint16_t qid, char *data, size_t data_len, size_t request_data_len)
 {
@@ -162,12 +140,12 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
     mbuf->packet_type = originalMbuf->packet_type;
     mbuf->hash.rss = originalMbuf->hash.rss;
 
-    struct rte_ether_hdr *new_ether_hdr = (struct rte_ether_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ether_hdr));    
+    struct rte_ether_hdr *new_ether_hdr = (struct rte_ether_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ether_hdr));
 	//fill_ethernet_header
     {
         rte_memcpy(new_ether_hdr, eth_hdr, sizeof(struct rte_ether_hdr));
 	    new_ether_hdr->s_addr = eth_hdr->d_addr;
-	    new_ether_hdr->d_addr = eth_hdr->s_addr;	    
+	    new_ether_hdr->d_addr = eth_hdr->s_addr;
     }
 
 	struct rte_ipv4_hdr *new_ipv4_hdr = (struct rte_ipv4_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ipv4_hdr));
@@ -220,12 +198,12 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
     {
         //printf("send cnt=%d\n",ret);
     }
-    
+
     return true;
 }
 
 
-static inline bool is_rx_port(struct port_params *port_param) 
+static inline bool is_rx_port(struct port_params *port_param)
 {
     return port_param->tx_port >= 0;
 }
@@ -247,7 +225,7 @@ void _hm_worker_run(void *dummy)
         HM_INFO("lcore can't get port param\n");
         return;
     }
-        
+
 	uint16_t port = port_param->port_id;
     if ( !is_rx_port(port_param) ) {
         HM_INFO("port(%d) is tx port , return\n", port);
@@ -264,7 +242,7 @@ void _hm_worker_run(void *dummy)
 	 * Check that the port is on the same NUMA node as the polling thread
 	 * for best performance.
 	 */
-	
+
     if (rte_eth_dev_socket_id(port) >= 0 &&
         rte_eth_dev_socket_id(port) != (int)rte_socket_id()
     )
@@ -279,8 +257,8 @@ void _hm_worker_run(void *dummy)
     uint64_t total_pkts = 0;
     FILE *log_fp = hplog_init(lcore_id);
     const size_t log_data_size = 2048;
-    char *log_data = rte_malloc_socket("logdata", log_data_size, 64, rte_socket_id());    
-	while ( !rte_atomic16_read(&global_exit_flag) ) 
+    char *log_data = rte_malloc_socket("logdata", log_data_size, 64, rte_socket_id());
+	while ( !rte_atomic16_read(&global_exit_flag) )
     {
 
 		/* Get burst of RX packets, from first port of pair. */
@@ -289,10 +267,10 @@ void _hm_worker_run(void *dummy)
 
 		if (unlikely(nb_rx == 0))
 			continue;
-        
+
         total_pkts += nb_rx;
 
-		int n = 0;		
+		int n = 0;
         for (; n< nb_rx;n++)
         {
 			struct rte_ether_hdr *eth_hdr;
@@ -306,7 +284,7 @@ void _hm_worker_run(void *dummy)
 
             if (ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
                 continue;
-			
+
             int ipv4_hdr_len;
             uint16_t ip_total_len;
             struct rte_ipv4_hdr *ipv4_hdr;
@@ -317,9 +295,9 @@ void _hm_worker_run(void *dummy)
 
             //uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
             //uint32_t dst_ip = rte_be_to_cpu_32(ipv4_hdr->dst_addr);
-            
+
             if (ipv4_hdr->next_proto_id == IPPROTO_TCP) {
-                struct rte_tcp_hdr *tcp = (struct rte_tcp_hdr *)((unsigned char *)ipv4_hdr + ipv4_hdr_len);					
+                struct rte_tcp_hdr *tcp = (struct rte_tcp_hdr *)((unsigned char *)ipv4_hdr + ipv4_hdr_len);
                 uint16_t dst_port = rte_be_to_cpu_16(tcp->dst_port);
                 //if ( dst_port == 5020 ) {
                 if ( dst_port > 0 ) {
@@ -328,14 +306,14 @@ void _hm_worker_run(void *dummy)
                     uint32_t tcp_head_len = (tcp->data_off & 0xf0) >> 2;
                     unsigned char *content = (unsigned char*)tcp + tcp_head_len;
                     uint32_t content_len = ip_total_len - ipv4_hdr_len - tcp_head_len;
-                    
+
                     size_t host_len = 0;
                     char *host = NULL;
                     char *url = NULL;
                     size_t url_length = 0;
                     if ( global_work_type == 0 ) {
-                        //log http host                        
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {                            
+                        //log http host
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {
                             if ( host_len + 1 + url_length > log_data_size )
                                 continue;
                             rte_memcpy(log_data, host, host_len);
@@ -352,8 +330,8 @@ void _hm_worker_run(void *dummy)
                         if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {
                             memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
                             memcpy(pad_key, host, host_len);
-                            char *target; 
-                            hm_hash_search(self_socket, pad_key, (void**)&target );    
+                            char *target;
+                            hm_hash_search(self_socket, pad_key, (void**)&target );
                             if ( likely(target == NULL) )
                                 continue;
                             const char *response_format = "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
@@ -365,14 +343,14 @@ void _hm_worker_run(void *dummy)
                     }
                 }
             }
-        
+
 		}  // end for(...)
 		uint16_t nb;
 		for (nb = 0; nb < nb_rx; nb++)
-			rte_pktmbuf_free(bufs[nb]);		
+			rte_pktmbuf_free(bufs[nb]);
 	} // end while(...)
 
-    HM_INFO("core(%d) total packets=%d \n",lcore_id, total_pkts);
+    HM_INFO("core(%u) total packets=%lu \n", lcore_id, total_pkts);
 }
 
 int hm_worker_run(void *dummy)

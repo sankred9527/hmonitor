@@ -1,6 +1,5 @@
-
-
 #include "hm_dumphttp.h"
+
 
 FILE * hmdump_init(int core_id)
 {

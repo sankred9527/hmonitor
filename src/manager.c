@@ -1,7 +1,5 @@
-
-#include "all.h"
 #include "manager.h"
-#include "worker.h"
+
 
 struct rte_mempool *hm_manager_get_mbuf(struct worker_manager *wm, uint16_t port_id, uint16_t physical_socket_id) {
     struct rte_mempool **ret = &(wm->mbuf[0]);
@@ -67,16 +65,16 @@ port_init(struct worker_manager *wm, uint16_t port)
 		rte_exit(-1, "Error during getting device (port %u) info: %s\n", port, strerror(-retval));
 
     struct port_params *port_param = hm_config_get_port_param(port);
-    if ( port_param == NULL) 
+    if ( port_param == NULL)
         rte_exit(-1, "get port param(%d) from config file failed\n", port);
 
     rx_rings = port_param->nb_rx_queues;
     tx_rings = port_param->nb_tx_queues;
-        
+
 	if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE)
 		port_conf.txmode.offloads |=
 			DEV_TX_OFFLOAD_MBUF_FAST_FREE;
-        
+
     port_conf = port_conf_default;
 
 	port_conf.rx_adv_conf.rss_conf.rss_hf &=
@@ -90,7 +88,7 @@ port_init(struct worker_manager *wm, uint16_t port)
 			port_conf.rx_adv_conf.rss_conf.rss_hf);
 	}
 
-	/* Configure the Ethernet device. */	
+	/* Configure the Ethernet device. */
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
 	if (retval != 0)
 		return retval;
@@ -102,7 +100,7 @@ port_init(struct worker_manager *wm, uint16_t port)
     HM_INFO("port(%d) set nb_rxd=%d nb_txd=%d\n",port, nb_rxd, nb_txd);
 
     //TODO:
-    int port_socket_id = rte_eth_dev_socket_id(port);    
+    int port_socket_id = rte_eth_dev_socket_id(port);
     HM_INFO("port(%d) socket_id=%d, physical socketid=%d\n" , port , port_socket_id, rte_socket_id_by_idx(port_socket_id) );
     if ( rte_socket_id_by_idx(port_socket_id) != port_param->physical_socket) {
         rte_exit(-1, "port socket id in config file != real socket id\n");
@@ -111,21 +109,21 @@ port_init(struct worker_manager *wm, uint16_t port)
     char mbuf_name[32];
     snprintf(mbuf_name,32,"MBUF_POOL_%d_%d", port,port_socket_id);
 	mbuf = rte_pktmbuf_pool_create(mbuf_name, 8191 * 16,
-		250, 0, RTE_MBUF_DEFAULT_BUF_SIZE, port_socket_id);    
+		250, 0, RTE_MBUF_DEFAULT_BUF_SIZE, port_socket_id);
 
     if (mbuf==NULL) {
         rte_exit(-1, "rte_pktmbuf_pool_create error (port %u , socket id %u) info: %s\n", port, port_socket_id, strerror(-retval));
-    }    
+    }
 
     if ( NULL == hm_manager_set_mbuf(wm, mbuf, port, port_socket_id) )
-        rte_exit(-1, "hm_manager_set_mbuf wrong: %d %d\n", port, port_socket_id);    
+        rte_exit(-1, "hm_manager_set_mbuf wrong: %d %d\n", port, port_socket_id);
 
 	/* Allocate and set up RX queue per Ethernet port. */
 	for (q = 0; q < rx_rings; q++) {
 		retval = rte_eth_rx_queue_setup(port, q, nb_rxd, port_socket_id , NULL, mbuf);
 		if (retval < 0)
 			return retval;
-	}    
+	}
 
 	txconf = dev_info.default_txconf;
 	txconf.offloads = port_conf.txmode.offloads;
@@ -166,17 +164,17 @@ port_init(struct worker_manager *wm, uint16_t port)
 void hm_manager_port_init(struct worker_manager *wm)
 {
     uint16_t portid;
-    RTE_ETH_FOREACH_DEV(portid) {        
-        if (port_init(wm, portid) != 0)            
+    RTE_ETH_FOREACH_DEV(portid) {
+        if (port_init(wm, portid) != 0)
             rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu16 "\n", portid);
     }
-    
+
 }
 
 void hm_manager_port_stat(void)
 {
     uint16_t portid;
-    RTE_ETH_FOREACH_DEV(portid) {        
+    RTE_ETH_FOREACH_DEV(portid) {
         struct rte_eth_stats stat_info;
         int stat;
         if (!rte_eth_dev_is_valid_port(portid)) {
@@ -200,9 +198,9 @@ void hm_manager_port_stat(void)
         } else if (stat == -ENOTSUP)
             HM_INFO("Port %i: Operation not supported\n", portid);
         else
-            HM_INFO("Port %i: Error fetching statistics\n", portid);        
+            HM_INFO("Port %i: Error fetching statistics\n", portid);
     }
-    
+
 }
 
 
@@ -230,9 +228,9 @@ struct worker_manager *hm_manager_init(char *config_filename)
     if ( wm->mbuf == NULL )
         rte_exit(-1, "malloc worker manager mbuf failed\n");
 
-    HM_INFO("malloc mbuf addr=%p, size=%d\n", wm->mbuf, sizeof(struct rte_mempool *) * nb_sockets * nb_ports );
-    memset(wm->mbuf, 0 , sizeof(struct rte_mempool *) * nb_sockets * nb_ports );  
-    
+    HM_INFO("malloc mbuf addr=%p, size=%ld\n", wm->mbuf, sizeof(struct rte_mempool *) * nb_sockets * nb_ports );
+    memset(wm->mbuf, 0 , sizeof(struct rte_mempool *) * nb_sockets * nb_ports );
+
     return wm;
 }
 
@@ -246,7 +244,7 @@ void hm_manager_wait_stop(struct worker_manager *wm){
 
     hm_manager_port_stat();
 
-    RTE_ETH_FOREACH_DEV(portid) {        
+    RTE_ETH_FOREACH_DEV(portid) {
         HM_INFO("Closing port %d...", portid);
         int ret = rte_eth_dev_stop(portid);
         if (ret != 0)
@@ -277,15 +275,15 @@ void hm_manager_test()
 
 	HM_INFO("total sockets=%d\n", nb_sockets);
     HM_INFO("total ports=%d\n", nb_ports);
-    HM_INFO("main core id=%d\n", rte_get_main_lcore() );    
+    HM_INFO("main core id=%d\n", rte_get_main_lcore() );
 
     for (n=0;n<nb_sockets;n++){
         HM_LOG(INFO,"physical socket idx=%d , eal socketid=%d\n" , n , rte_socket_id_by_idx(n) );
     }
 
     RTE_LCORE_FOREACH(lcore_id) {
-		HM_LOG(INFO, "lcore id=%d, cpu id=%d socket_id=%d\n", lcore_id, rte_lcore_to_cpu_id(lcore_id),  rte_lcore_to_socket_id(lcore_id)  );        
-	}    
+		HM_LOG(INFO, "lcore id=%d, socket_id=%d\n", lcore_id, rte_lcore_to_socket_id(lcore_id));
+	}
 
     RTE_ETH_FOREACH_DEV(port_id) {
        	uint16_t nb_rxd = 10240;

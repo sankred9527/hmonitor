@@ -2,7 +2,12 @@
 #ifndef _HM_CONFIG_H_
 #define _HM_CONFIG_H_
 
+#include <search.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "all.h"
+#include "libconfig.h"
 
 #define HM_MAX_ETHPORTS (8)
 #define HM_MAX_PORT_QUEUE (32)
@@ -23,16 +28,16 @@ typedef struct {
 struct port_params {
     unsigned int port_id;
     unsigned int nb_rx_queues;
-    unsigned int nb_tx_queues;    
+    unsigned int nb_tx_queues;
     unsigned int tx_port;
     unsigned int physical_socket;
     unsigned int rxqueue_to_core[HM_MAX_PORT_QUEUE];
 };
 
 struct hm_config {
-    // number queues of each port    
+    // number queues of each port
     struct port_params *port_config[HM_MAX_ETHPORTS];
-    const domain_conf_t* domain_config;    
+    const domain_conf_t* domain_config;
     void *domain_hash_handle;
 };
 
