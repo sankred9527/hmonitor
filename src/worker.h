@@ -3,13 +3,14 @@
 
 #include <stdint.h>
 #include <sys/types.h>
+#include <string.h>
 
 #include <rte_branch_prediction.h>
 #include <rte_common.h>
 #include <rte_cycles.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
-#include <rte_graph_worker.h>
+//#include <rte_graph_worker.h>
 #include <rte_launch.h>
 #include <rte_lcore.h>
 #include <rte_log.h>

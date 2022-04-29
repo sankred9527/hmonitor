@@ -2,7 +2,7 @@
 #include <inttypes.h>
 #include <getopt.h>
 #include <sys/types.h>
-
+#include <string.h>
 #include <signal.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
