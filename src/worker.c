@@ -317,17 +317,17 @@ void _hm_worker_run(void *dummy)
                     size_t url_length = 0;
                     if ( global_work_type == 0 ) {
                         //log http host
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {   
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {
                             const int port_len = 7;
                             if ( host_len + port_len + url_length + 1 >= log_data_size )
                                 continue;
                             rte_memcpy(log_data, host, host_len);
 
-                            // port is %05d + space, 7 bytes                            
+                            // port is %05d + space, 7 bytes
                             if ( port_len != snprintf(log_data + host_len, port_len+1, " %05d ", dst_port) ) {
                                 continue;
                             }
-                            
+
                             rte_memcpy(log_data + host_len + port_len , url , url_length);
                             log_data[host_len + port_len + url_length] = '\n';
                             hplog_append_line(log_fp, log_data, host_len + port_len + url_length + 1);
@@ -369,8 +369,85 @@ int hm_worker_run(void *dummy)
     return 0;
 }
 
+static inline
+what_we_want_t *
+we_want(void *parser_data) {
+    return (what_we_want_t *)parser_data;
+}
+
+int
+my_url_callback(llhttp_t *parser, const char *at, size_t length) {
+    char *url = calloc(length, sizeof(char));
+    memcpy(url, at, length);
+    //printf("url: %s\n", url);
+    we_want(parser->data)->url = url;
+}
+
+int
+my_header_field_callback(llhttp_t *parser, const char *at, size_t length) {
+    char *field = calloc(length, sizeof(char));
+    memcpy(field, at, length);
+    //printf("field: %s ", field);
+    we_want(parser->data)->data = field;
+    return HPE_OK;
+}
+
+int
+my_header_value_callback(llhttp_t *parser, const char *at, size_t length) {
+    char *value = calloc(length, sizeof(char));
+    memcpy(value, at, length);
+    //printf("value: %s\n", value);
+    // stricmp ?
+    if(we_want(parser->data)->data != NULL) {
+        if(strcmp(we_want(parser->data)->data, "Referer") == 0) {
+            we_want(parser->data)->referer = value;
+        } else if(strcmp(we_want(parser->data)->data, "Host") == 0) {
+            char *token = strtok(value, ":");
+            we_want(parser->data)->host = token;
+            token = strtok(NULL, ":");
+            if(token != NULL) {
+                we_want(parser->data)->port = token;
+            }
+        } else {
+            free(we_want(parser->data)->data);
+            we_want(parser->data)->data = NULL;
+        }
+    }
+    return HPE_OK;
+}
+
+int
+my_headers_complete_callback(llhttp_t *parser) {
+    return HPE_OK;
+}
+
 static inline bool
-get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length)
+get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length) {
+    if( unlikely(content == NULL || content_length == 0 || host_length == NULL) )
+        return false;
+
+    llhttp_settings_t settings;
+    llhttp_settings_init(&settings);
+    settings.on_url = my_url_callback;
+    settings.on_header_field = my_header_field_callback;
+    settings.on_header_value = my_header_value_callback;
+    settings.on_headers_complete = my_headers_complete_callback;
+
+    llhttp_t parser;
+    llhttp_init(&parser, HTTP_REQUEST, &settings);
+    parser.data = calloc(1, sizeof(what_we_want_t));
+    enum llhttp_errno err = llhttp_execute(&parser, content, content_length);
+    if (err == HPE_OK) {
+        what_we_want_t *what_we_want = we_want(parser.data);
+        printf("host: %s port: %s url: %s referer: %s\n", what_we_want->host, what_we_want->port, what_we_want->url, what_we_want->referer);
+    } else {
+        HM_INFO("Parse error: %s %s\n", llhttp_errno_name(err), parser.reason);
+        return false;
+    }
+}
+
+static inline bool
+get_http_host_impl(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length)
 {
     if( unlikely(content == NULL || content_length == 0 || host_length == NULL) )
         return false;

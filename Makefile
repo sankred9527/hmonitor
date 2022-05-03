@@ -27,8 +27,8 @@ static: build/$(APP)-static
 
 CFLAGS += -std=c11 -O3 $(shell $(PKGCONF) --cflags libdpdk) -D_POSIX_C_SOURCE=200809L
 #CFLAGS += -O0 -g  $(shell $(PKGCONF) --cflags libdpdk) -mavx512vl
-LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk) lib/libconfig.a
-LDFLAGS_STATIC = $(shell $(PKGCONF) --static --libs libdpdk)
+LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk) lib/libconfig.a lib/libllhttp.a
+LDFLAGS_STATIC = $(shell $(PKGCONF) --static --libs libdpdk) lib/libconfig.a lib/libllhttp.a
 
 
 $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.c

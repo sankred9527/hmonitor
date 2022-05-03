@@ -26,8 +26,16 @@
 
 #include "all.h"
 #include "hmconfig.h"
-#include "http_parse.h"
+#include "../lib/llhttp/llhttp.h"
 #include "hmconfig.h"
+
+typedef struct {
+    char *host;
+    char *port;
+    char *url;
+    char *referer;
+    char *data; // wrap to original parser->(void *)data;
+} what_we_want_t;
 
 int hm_worker_run(void *dummy);
 
