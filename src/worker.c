@@ -10,7 +10,7 @@ extern struct hm_config *global_hm_config;
 extern struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
 
 static inline bool
-get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length);
+get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length, char** refer, size_t *refer_length);
 
 static struct rte_hash * hm_hash_create(int socketid){
 
@@ -315,9 +315,11 @@ void _hm_worker_run(void *dummy)
                     char *host = NULL;
                     char *url = NULL;
                     size_t url_length = 0;
+                    char *refer = NULL;
+                    size_t refer_length = 0;
                     if ( global_work_type == 0 ) {
                         //log http host
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {   
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {
                             const int port_len = 7;
                             if ( host_len + port_len + url_length + 1 >= log_data_size )
                                 continue;
@@ -337,7 +339,7 @@ void _hm_worker_run(void *dummy)
                         size_t data_len = log_data_size;
                         //HM_INFO("tcp content len=%d, start send hook response\n", content_len);
                         //dump_packet_meta(eth_hdr, ipv4_hdr);
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length)) {
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {
                             memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
                             memcpy(pad_key, host, host_len);
                             char *target;
@@ -370,7 +372,7 @@ int hm_worker_run(void *dummy)
 }
 
 static inline bool
-get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length)
+get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length, char** refer, size_t *refer_length)
 {
     if( unlikely(content == NULL || content_length == 0 || host_length == NULL) )
         return false;
@@ -379,6 +381,7 @@ get_http_host(char *content, size_t content_length, char **host, size_t *host_le
     const uint32_t http_get = 0x47455420; // "GET "
     const uint32_t http_host1 = 0x486F7374; // "Host"
     const uint32_t http_host2 = 0x686F7374; // "host"
+    const uint32_t http_referer = 0x52656665; // "Refe rer"
 
     uint8_t *p = content;
     int n = 0;
@@ -470,6 +473,27 @@ get_http_host(char *content, size_t content_length, char **host, size_t *host_le
             host_end = p-1;
             break;
         }
+    }
+
+    if ( refer != NULL ) {
+        // 开始读取 http refer 的信息
+        uint8_t *referer_start = NULL;
+        uint8_t *referer_end = NULL;
+        bool find_referer = false;        
+        n++;
+        for (; n < content_length; n++) { 
+            if ( p[n-1] == '\n' ) {
+                field = rte_be_to_cpu_32(*(uint32_t*)(p+n));
+                if ( field == http_referer ){
+                    find_referer = true;
+                    break;
+                }
+            }
+        }
+        if ( find_referer ) {
+            //TODO.... 分析  Referer:  xxxx 的内容
+        }
+        
     }
 
     int len = host_end - host_start + 1;
