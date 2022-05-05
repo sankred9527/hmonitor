@@ -319,7 +319,7 @@ void _hm_worker_run(void *dummy)
                     size_t refer_length = 0;
                     if ( global_work_type == 0 ) {
                         //log http host
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {                        
                             const int port_len = 7;
                             if ( host_len + port_len + url_length + 1 >= log_data_size )
                                 continue;
@@ -329,17 +329,28 @@ void _hm_worker_run(void *dummy)
                             if ( port_len != snprintf(log_data + host_len, port_len+1, " %05d ", dst_port) ) {
                                 continue;
                             }
+
+                            int refer_len = 0;
+                            if ( refer != NULL && refer_length > 0) {
+                                //pass
+                            } else {
+                                refer = "null";
+                                refer_length = 4;
+                            }
+                            rte_memcpy(log_data + host_len + port_len , refer, refer_length);
+                            rte_memcpy(log_data + host_len + port_len + refer_length, " " ,1);
+                            refer_len = refer_length + 1;
                             
-                            rte_memcpy(log_data + host_len + port_len , url , url_length);
-                            log_data[host_len + port_len + url_length] = '\n';
-                            hplog_append_line(log_fp, log_data, host_len + port_len + url_length + 1);
+                            rte_memcpy(log_data + host_len + port_len + refer_len, url , url_length);
+                            log_data[host_len + port_len + refer_len + url_length] = '\n';
+                            hplog_append_line(log_fp, log_data, host_len + port_len + refer_len + url_length + 1);
                         }
                     } else if ( global_work_type == 1 ) {
                         //hook http host
                         size_t data_len = log_data_size;
                         //HM_INFO("tcp content len=%d, start send hook response\n", content_len);
                         //dump_packet_meta(eth_hdr, ipv4_hdr);
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {
+                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, NULL, NULL)) {
                             memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
                             memcpy(pad_key, host, host_len);
                             char *target;
@@ -475,13 +486,14 @@ get_http_host(char *content, size_t content_length, char **host, size_t *host_le
         }
     }
 
-    if ( refer != NULL ) {
+    if ( refer != NULL ) {        
+        p = content;
         // 开始读取 http refer 的信息
         uint8_t *referer_start = NULL;
         uint8_t *referer_end = NULL;
         bool find_referer = false;        
         n++;
-        for (; n < content_length; n++) { 
+        for (; n < content_length; n++) {            
             if ( p[n-1] == '\n' ) {
                 field = rte_be_to_cpu_32(*(uint32_t*)(p+n));
                 if ( field == http_referer ){
@@ -490,8 +502,28 @@ get_http_host(char *content, size_t content_length, char **host, size_t *host_le
                 }
             }
         }
-        if ( find_referer ) {
+        if ( find_referer && strncmp( p + n + 4, "rer:", 4 ) == 0) {
             //TODO.... 分析  Referer:  xxxx 的内容
+            n += 8;
+            for (; n < content_length; n++) {
+                if ( referer_start == NULL) {
+                    if  ( p[n] == ' ' || p[n] == '\t' ) 
+                        continue;
+                    else {
+                        referer_start = p + n;
+                        continue;
+                    }                    
+                }
+
+                if  ( p[n] == ' ' || p[n] == '\t'  || p[n] == '\r' || p[n] == '\n')  {
+                    referer_end = p + n - 1;
+                    break;
+                }
+            }
+            if ( referer_start != NULL && referer_end != NULL ) {
+                *refer = referer_start;
+                *refer_length = referer_end - referer_start + 1;                
+            }
         }
         
     }
