@@ -7,6 +7,7 @@
 extern rte_atomic16_t global_exit_flag ;
 extern int global_work_type;
 extern struct hm_config *global_hm_config;
+extern bool global_log_hook ;
 extern struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
 
 static inline bool
@@ -357,6 +358,9 @@ void _hm_worker_run(void *dummy)
                             hm_hash_search(self_socket, pad_key, (void**)&target );
                             if ( likely(target == NULL) )
                                 continue;
+                            if ( global_log_hook ) {
+                                HM_INFO("Hook %s to %s ", pad_key, target);
+                            }
                             const char *response_format = "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
                             int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
 

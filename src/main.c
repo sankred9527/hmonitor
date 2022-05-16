@@ -10,6 +10,7 @@ hm_parse_args(int argc, char **argv)
 	"T:"  /* timer period */
 	"d"   /* dump port info */
 	"w:"  /* work type */
+	"l"   /* log hook */
 	;
 
 	int opt;
@@ -29,6 +30,9 @@ hm_parse_args(int argc, char **argv)
                 break;
 			case 'd':
 				global_dump_info = true;
+				break;
+			case 'l':
+				global_log_hook = true;
 				break;
 			case 'w':
 				if ( strcmp(optarg, "log") == 0 )

@@ -43,5 +43,6 @@ static const struct rte_eth_conf port_conf_default = {
 static char *global_config_filename = NULL;
 static char *global_coreport_filename = NULL;
 static bool global_dump_info = false;
+bool global_log_hook = false;
 int global_work_type = -1;
 struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
