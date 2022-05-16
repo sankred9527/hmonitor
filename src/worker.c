@@ -354,11 +354,11 @@ void _hm_worker_run(void *dummy)
                         if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, NULL, NULL)) {
                             memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
                             memcpy(pad_key, host, host_len);
-                            char *target;
+                            char *target = NULL;
                             hm_hash_search(self_socket, pad_key, (void**)&target );
                             if ( likely(target == NULL) )
                                 continue;
-                            if ( global_log_hook ) {
+                            if ( unlikely(global_log_hook) ) {
                                 HM_INFO("Hook %s to %s ", pad_key, target);
                             }
                             const char *response_format = "HTTP/1.1 301 Moved Permanently\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
