@@ -360,7 +360,7 @@ void _hm_worker_run(void *dummy)
                             if ( likely(target == NULL) )
                                 continue;
                             if ( unlikely(global_log_hook) ) {
-                                HM_INFO("Hook %s to %s ", pad_key, target);
+                                HM_INFO("Hook %s to %s \n", pad_key, target);
                             }
                             const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
                             int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
