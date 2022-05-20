@@ -39,6 +39,8 @@ hm_parse_args(int argc, char **argv)
 					global_work_type = 0;
 				else if ( strcmp(optarg, "hook") == 0)
 					global_work_type = 1;
+				else if ( strcmp(optarg, "hooklog") == 0)
+					global_work_type = 3;
 				else {
 					rte_exit(-1, "work type (-w) must be log or hook\n");
 				}

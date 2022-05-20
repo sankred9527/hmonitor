@@ -319,71 +319,72 @@ void _hm_worker_run(void *dummy)
                     size_t url_length = 0;
                     char *refer = NULL;
                     size_t refer_length = 0;
-                    if ( global_work_type == 0 ) {
+
+                    if (!get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {
+                        continue;
+                    }
+                    if ( global_work_type == 0 || global_work_type == 3 ) {
                         //log http host
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, &refer, &refer_length)) {                        
-                            const int port_len = 7;
-                            if ( host_len + port_len + url_length + 1 >= log_data_size )
-                                continue;
-                            rte_memcpy(log_data, host, host_len);
+                        const int port_len = 7;
+                        if ( host_len + port_len + refer_length + url_length + 1 >= log_data_size )
+                            continue;
+                        rte_memcpy(log_data, host, host_len);
 
-                            // port is %05d + space, 7 bytes                            
-                            if ( port_len != snprintf(log_data + host_len, port_len+1, " %05d ", dst_port) ) {
-                                continue;
-                            }
-
-                            int refer_len = 0;
-                            if ( refer != NULL && refer_length > 0) {
-                                //pass
-                            } else {
-                                refer = "null";
-                                refer_length = 4;
-                            }
-                            rte_memcpy(log_data + host_len + port_len , refer, refer_length);
-                            rte_memcpy(log_data + host_len + port_len + refer_length, " " ,1);
-                            refer_len = refer_length + 1;
-                            
-                            rte_memcpy(log_data + host_len + port_len + refer_len, url , url_length);
-                            log_data[host_len + port_len + refer_len + url_length] = '\n';
-                            hplog_append_line(log_fp, log_data, host_len + port_len + refer_len + url_length + 1);
+                        // port is %05d + space, 7 bytes                            
+                        if ( port_len != snprintf(log_data + host_len, port_len+1, " %05d ", dst_port) ) {
+                            continue;
                         }
-                    } else if ( global_work_type == 1 ) {
+
+                        int refer_len = 0;
+                        if ( refer != NULL && refer_length > 0) {
+                            //pass
+                        } else {
+                            refer = "null";
+                            refer_length = 4;
+                        }
+                        rte_memcpy(log_data + host_len + port_len , refer, refer_length);
+                        rte_memcpy(log_data + host_len + port_len + refer_length, " " ,1);
+                        refer_len = refer_length + 1;
+                        
+                        rte_memcpy(log_data + host_len + port_len + refer_len, url , url_length);
+                        log_data[host_len + port_len + refer_len + url_length] = '\n';
+                        hplog_append_line(log_fp, log_data, host_len + port_len + refer_len + url_length + 1);
+                    }
+                    
+                    if ( global_work_type == 1 || global_work_type == 3  ) {
                         //hook http host
-                        size_t data_len = log_data_size;
                         //HM_INFO("tcp content len=%d, start send hook response\n", content_len);
                         //dump_packet_meta(eth_hdr, ipv4_hdr);
-                        if (get_http_host(content, content_len, &host, &host_len, &url, &url_length, NULL, NULL)) {
-                            memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
-                            memcpy(pad_key, host, host_len);
-                            snprintf( pad_key + host_len, HM_MAX_DOMAIN_LEN-host_len, ":%d", dst_port);
-                            char *target = NULL;
-                            hm_hash_search(self_socket, pad_key, (void**)&target );
-                            if ( likely(target == NULL) )
-                                continue;
-                            if ( (global_log_hook) ) {
-                                uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
-                                struct tm tms;
-                                const time_t t = time(NULL);
-                                localtime_r( &t, &tms);
+                        memset(pad_key, 0, HM_MAX_DOMAIN_LEN);
+                        memcpy(pad_key, host, host_len);
+                        snprintf( pad_key + host_len, HM_MAX_DOMAIN_LEN-host_len, ":%d", dst_port);
+                        char *target = NULL;
+                        hm_hash_search(self_socket, pad_key, (void**)&target );
+                        if ( likely(target == NULL) )
+                            continue;
+                        if ( (global_log_hook) ) {
+                            uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
+                            struct tm tms;
+                            const time_t t = time(NULL);
+                            localtime_r( &t, &tms);
 
-                                #if 1
-                                HM_INFO("%d%02d%02d%02d%02d%02d, " 
-                                    "%d.%d.%d.%d, Hook %s to %s \n",
-                                    1900+tms.tm_year,1+tms.tm_mon,tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec,
-                                    src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
-                                    pad_key, target);
-                                #else
-                                HM_INFO("%d, %d.%d.%d.%d, Hook %s to %s \n", time(NULL), 
-                                    src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
-                                    pad_key, target);
-                                #endif
-                            }
-                            const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
-                            int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
-
-                            uint16_t tx_queue_id = 0;
-                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len);
+                            #if 1
+                            HM_INFO("%d%02d%02d%02d%02d%02d, " 
+                                "%d.%d.%d.%d, Hook %s to %s \n",
+                                1900+tms.tm_year,1+tms.tm_mon,tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec,
+                                src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
+                                pad_key, target);
+                            #else
+                            HM_INFO("%d, %d.%d.%d.%d, Hook %s to %s \n", time(NULL), 
+                                src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
+                                pad_key, target);
+                            #endif
                         }
+                        const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
+                        int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
+
+                        uint16_t tx_queue_id = 0;
+                        ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len);                    
                     }
                 }
             }
