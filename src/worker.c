@@ -1,6 +1,7 @@
 #include "worker.h"
 #include <rte_eal.h>
 #include <rte_mbuf.h>
+#include <time.h>
 
 #define BURST_SIZE 32
 
@@ -359,8 +360,23 @@ void _hm_worker_run(void *dummy)
                             hm_hash_search(self_socket, pad_key, (void**)&target );
                             if ( likely(target == NULL) )
                                 continue;
-                            if ( unlikely(global_log_hook) ) {
-                                HM_INFO("Hook %s to %s \n", pad_key, target);
+                            if ( (global_log_hook) ) {
+                                uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
+                                struct tm tms;
+                                const time_t t = time(NULL);
+                                localtime_r( &t, &tms);
+
+                                #if 1
+                                HM_INFO("%d%02d%02d%02d%02d%02d, " 
+                                    "%d.%d.%d.%d, Hook %s to %s \n",
+                                    1900+tms.tm_year,1+tms.tm_mon,tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec,
+                                    src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
+                                    pad_key, target);
+                                #else
+                                HM_INFO("%d, %d.%d.%d.%d, Hook %s to %s \n", time(NULL), 
+                                    src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
+                                    pad_key, target);
+                                #endif
                             }
                             const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
                             int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
