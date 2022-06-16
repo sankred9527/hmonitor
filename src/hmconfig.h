@@ -11,7 +11,7 @@
 
 #define HM_MAX_ETHPORTS (8)
 #define HM_MAX_PORT_QUEUE (32)
-#define HM_MAX_DOMAINS (8192)
+#define HM_MAX_DOMAINS (8192*100)
 #define HM_MAX_DOMAIN_LEN (1024)
 #define HM_MAX_CPU_SOCKET (32)
 
