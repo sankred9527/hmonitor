@@ -168,7 +168,7 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
         new_ipv4_hdr->total_length = rte_cpu_to_be_16( sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr) + data_len);
         new_ipv4_hdr->packet_id = rte_cpu_to_be_16(5462); // set random
         new_ipv4_hdr->fragment_offset = rte_cpu_to_be_16(0);
-        new_ipv4_hdr->time_to_live = 64;
+        new_ipv4_hdr->time_to_live = 58;
         new_ipv4_hdr->next_proto_id = IPPROTO_TCP; // tcp
         //new_ipv4_hdr->hdr_checksum = rte_cpu_to_be_16(25295);
     }
