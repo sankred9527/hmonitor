@@ -144,7 +144,7 @@ load_domain_config(char *config_file) {
         for(i = 0; i < count; ++i)
         {
             if(i >= HM_MAX_DOMAINS) {
-                HM_INFO("maxium %d / %d domains loaded", i, count);
+                HM_INFO("maxium %d / %d domains loaded\n", i, count);
                 break;
             }
 
