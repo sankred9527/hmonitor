@@ -4,7 +4,7 @@
 struct rte_mempool *hm_manager_get_mbuf(struct worker_manager *wm, uint16_t port_id, uint16_t physical_socket_id) {
     struct rte_mempool **ret = &(wm->mbuf[0]);
 
-    uint32_t offset = port_id*wm->nb_ports + physical_socket_id;
+    uint32_t offset = port_id + wm->nb_ports*physical_socket_id;
     if ( offset  >=  wm->nb_ports*wm->nb_sockets ) {
         return NULL;
     }
@@ -12,10 +12,10 @@ struct rte_mempool *hm_manager_get_mbuf(struct worker_manager *wm, uint16_t port
 }
 
 struct rte_mempool *hm_manager_set_mbuf(struct worker_manager *wm, struct rte_mempool *mbuf, uint16_t port_id, uint16_t physical_socket_id) {
-    uint32_t offset = port_id*(wm->nb_ports-1) + physical_socket_id;
 
+    uint32_t offset = port_id + wm->nb_ports*physical_socket_id;
     if ( offset >= wm->nb_ports*wm->nb_sockets ) {
-        printf("offset=%d  %d %d\n",offset, wm->nb_ports,wm->nb_sockets);
+        printf("offset=%d portid=%d %d %d\n",offset, port_id, wm->nb_ports,wm->nb_sockets);
         return NULL;
     }
     struct rte_mempool **ret = &(wm->mbuf[offset]);
@@ -117,6 +117,9 @@ port_init(struct worker_manager *wm, uint16_t port)
 
     if ( NULL == hm_manager_set_mbuf(wm, mbuf, port, port_socket_id) )
         rte_exit(-1, "hm_manager_set_mbuf wrong: %d %d\n", port, port_socket_id);
+    if ( mbuf != hm_manager_get_mbuf(wm, port, port_socket_id) ) {
+        rte_exit(-1, "hm_manager test get mbuf wrong %d %d\n", port, port_socket_id);
+    }
 
 	/* Allocate and set up RX queue per Ethernet port. */
 	for (q = 0; q < rx_rings; q++) {
