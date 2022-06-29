@@ -263,7 +263,7 @@ void _hm_worker_run(void *dummy)
     uint64_t total_pkts = 0;
     FILE *log_fp = hplog_init(lcore_id);
     const size_t log_data_size = 2048;
-    char *log_data = rte_malloc_socket("logdata", log_data_size, 64, rte_socket_id());
+    char *log_data = rte_malloc_socket("logdata", log_data_size, 64, self_socket);
 	while ( !rte_atomic16_read(&global_exit_flag) )
     {
 
@@ -324,31 +324,34 @@ void _hm_worker_run(void *dummy)
                         continue;
                     }
                     if ( global_work_type == 0 || global_work_type == 3 ) {
-                        //log http host
-                        const int port_len = 7;
-                        if ( host_len + port_len + refer_length + url_length + 1 >= log_data_size )
-                            continue;
-                        rte_memcpy(log_data, host, host_len);
+                        uint32_t log_offset = 0;
 
-                        // port is %05d + space, 7 bytes                            
-                        if ( port_len != snprintf(log_data + host_len, port_len+1, " %05d ", dst_port) ) {
-                            continue;
-                        }
+                        uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
+                        struct tm tms;
+                        const time_t t = time(NULL);
+                        localtime_r( &t, &tms);
 
-                        int refer_len = 0;
-                        if ( refer != NULL && refer_length > 0) {
-                            //pass
-                        } else {
-                            refer = "null";
-                            refer_length = 4;
-                        }
-                        rte_memcpy(log_data + host_len + port_len , refer, refer_length);
-                        rte_memcpy(log_data + host_len + port_len + refer_length, " " ,1);
-                        refer_len = refer_length + 1;
+                        log_offset += snprintf(log_data+log_offset, log_data_size ,"%d%02d%02d%02d%02d%02d ", 
+                                        1900+tms.tm_year, 1+tms.tm_mon, tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec );
+
+                        log_offset += snprintf(log_data+log_offset, log_data_size - log_offset, "%d.%d.%d.%d ", src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff);
                         
-                        rte_memcpy(log_data + host_len + port_len + refer_len, url , url_length);
-                        log_data[host_len + port_len + refer_len + url_length] = '\n';
-                        hplog_append_line(log_fp, log_data, host_len + port_len + refer_len + url_length + 1);
+                        log_offset += snprintf(log_data + log_offset, log_data_size - log_offset, "%05d ", dst_port);
+
+                        if ( log_offset + url_length + host_len + 2 >= log_data_size )
+                            continue;
+                        
+                        rte_memcpy(log_data + log_offset, host, host_len);
+                        log_offset += host_len ;
+                        log_data[log_offset] = ' ';
+                        log_offset++;
+
+                        rte_memcpy(log_data + log_offset, url , url_length);
+                        log_offset += url_length;
+                        log_data[log_offset] = '\n';
+                        log_offset++;
+
+                        hplog_append_line(log_fp, log_data, log_offset);                        
                     }
                     
                     if ( global_work_type == 1 || global_work_type == 3  ) {
