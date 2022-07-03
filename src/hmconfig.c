@@ -214,7 +214,7 @@ static void dump_port_config() {
     }
 }
 
-int hm_config_init(char *domain_config_file, char *coreport_config_file)
+int hm_config_init(char *domain_config_file, char *coreport_config_file, char *time_config_file)
 {
     global_hm_config = calloc(sizeof(*global_hm_config), 1);
     if ( global_hm_config == NULL )
@@ -225,6 +225,16 @@ int hm_config_init(char *domain_config_file, char *coreport_config_file)
     if ( !load_core_port_config(coreport_config_file, global_hm_config->port_config, RTE_MAX_ETHPORTS) ){
         rte_exit(-1, "load coreport config failed\n");
     }
+
+    if ( time_config_file != NULL ) {
+        int err = 0;
+        global_hm_config->time_config = load_time_config_file(time_config_file, &err);
+        if ( global_hm_config->time_config == NULL ) {
+            rte_exit(-1, "load time config failed, err=%d\n", err);
+        }
+        HM_INFO("load time config file done\n");
+    }
+    
 
     hm_hash_init();
 

@@ -7,6 +7,7 @@ hm_parse_args(int argc, char **argv)
 	const char short_options[] =
 	"f:"  /* config file path */
 	"q:"  /* config file path */
+	"t:"  /* config file path */
 	"T:"  /* timer period */
 	"d"   /* dump port info */
 	"w:"  /* work type */
@@ -28,6 +29,9 @@ hm_parse_args(int argc, char **argv)
 			case 'q':
                 global_coreport_filename = optarg;
                 break;
+			case 't':
+				global_timeconf_filename = optarg;
+				break;
 			case 'd':
 				global_dump_info = true;
 				break;
@@ -98,7 +102,7 @@ main(int argc, char *argv[])
 
     HM_LOG(INFO, "config file=%s\n", global_config_filename);
 
-	hm_config_init(global_config_filename, global_coreport_filename);
+	hm_config_init(global_config_filename, global_coreport_filename, global_timeconf_filename);
 
     struct worker_manager *wm = hm_manager_init(global_config_filename);
 

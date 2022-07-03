@@ -276,6 +276,9 @@ void _hm_worker_run(void *dummy)
 
         total_pkts += nb_rx;
 
+        struct tm tms;
+        const time_t t = time(NULL);
+        localtime_r( &t, &tms);
 		int n = 0;
         for (; n< nb_rx;n++)
         {
@@ -325,16 +328,13 @@ void _hm_worker_run(void *dummy)
                     }
                     if ( global_work_type == 0 || global_work_type == 3 ) {
                         uint32_t log_offset = 0;
-
                         uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
-                        struct tm tms;
-                        const time_t t = time(NULL);
-                        localtime_r( &t, &tms);
 
                         log_offset += snprintf(log_data+log_offset, log_data_size ,"%d%02d%02d%02d%02d%02d ", 
                                         1900+tms.tm_year, 1+tms.tm_mon, tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec );
 
-                        log_offset += snprintf(log_data+log_offset, log_data_size - log_offset, "%d.%d.%d.%d ", src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff);
+                        log_offset += snprintf(log_data+log_offset, log_data_size - log_offset, "%d.%d.%d.%d ", 
+                                        src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff, src_ip&0xff);
                         
                         log_offset += snprintf(log_data + log_offset, log_data_size - log_offset, "%05d ", dst_port);
 
@@ -367,9 +367,12 @@ void _hm_worker_run(void *dummy)
                             continue;
                         if ( (global_log_hook) ) {
                             uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
+
+                            /*
                             struct tm tms;
                             const time_t t = time(NULL);
                             localtime_r( &t, &tms);
+                            */
 
                             #if 1
                             HM_INFO("%d%02d%02d%02d%02d%02d, " 

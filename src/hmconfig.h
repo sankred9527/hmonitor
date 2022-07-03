@@ -8,6 +8,7 @@
 
 #include "all.h"
 #include "libconfig.h"
+#include "time_config.h"
 
 #define HM_MAX_ETHPORTS (8)
 #define HM_MAX_PORT_QUEUE (32)
@@ -38,12 +39,13 @@ struct hm_config {
     // number queues of each port
     struct port_params *port_config[HM_MAX_ETHPORTS];
     const domain_conf_t* domain_config;
+    const struct hijack_time_params *time_config;
     void *domain_hash_handle;
 };
 
 extern struct hm_config *global_hm_config;
 
-int hm_config_init(char *domain_config_file, char *coreport_config_file);
+int hm_config_init(char *domain_config_file, char *coreport_config_file, char* time_config_file);
 
 struct port_params *hm_config_get_port_param(uint16_t port);
 
