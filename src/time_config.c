@@ -68,7 +68,7 @@ out:
     
 }
 
-bool time_config_get_hijack(struct hijack_time_params *tp, struct tm *t, int *percent) {
+inline bool time_config_get_hijack(struct hijack_time_params *tp, struct tm *t, int *percent) {
     int n;
     bool find = false;
     
