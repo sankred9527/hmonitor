@@ -39,6 +39,8 @@ struct hijack_time_params *load_time_config_file(char *config_file, int *err)
         goto out;
     }
 
+    tparams->items_count = count;
+
     int i;
     for(i = 0; i < count; ++i)
     {
@@ -77,7 +79,7 @@ inline bool time_config_get_hijack(struct hijack_time_params *tp, struct tm *t, 
 
     *percent = -1;
 
-    for (n = 0; n< MAX_TIME_CONFIG; n++) {
+    for (n = 0; n< tp->items_count; n++) {
         if ( t->tm_hour >= tp->items[n].start_hour && t->tm_min >= tp->items[n].start_minute &&
             t->tm_hour <= tp->items[n].end_hour && t->tm_min <= tp->items[n].end_minute 
         ) {

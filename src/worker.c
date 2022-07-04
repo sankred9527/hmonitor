@@ -2,7 +2,7 @@
 #include <rte_eal.h>
 #include <rte_mbuf.h>
 #include <time.h>
-
+#include "time_config.h"
 #define BURST_SIZE 32
 
 extern rte_atomic16_t global_exit_flag ;

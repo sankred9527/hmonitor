@@ -18,6 +18,7 @@ struct hijack_time_config {
 
 struct hijack_time_params {
     struct hijack_time_config items[MAX_TIME_CONFIG];
+    unsigned int items_count;
     int default_percent;
 };
 
