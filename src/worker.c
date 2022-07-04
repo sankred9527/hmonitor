@@ -256,10 +256,24 @@ void _hm_worker_run(void *dummy)
                 "polling thread.\n\tPerformance will "
                 "not be optimal.\n", port);
 
-    pad_key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , rte_socket_id());
+    int self_socket = rte_socket_id();    
+    struct hijack_time_params *time_config = NULL;
+    if ( global_hm_config->time_config != NULL ) {
+        time_config = rte_calloc_socket(NULL, 1, sizeof(struct hijack_time_params), 8, self_socket);        
+        memcpy(time_config, global_hm_config->time_config, sizeof(struct hijack_time_params));    
+        HM_INFO("default percent=%02d%%\n", time_config->default_percent);
+        int n1 = 0;
+        for ( ; n1 < MAX_TIME_CONFIG; n1++ ) {
+            struct hijack_time_config *pt = &time_config->items[n1];
+            HM_INFO("core(%d), time config = %02d:%02d to %02d:%02d, percent=%d%%\n", lcore_id , pt->start_hour,pt->start_minute, pt->end_hour, pt->end_minute, pt->percent);
+        }        
+    }
+        
+
+    pad_key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , self_socket);
     //hash_test(pad_key, "www.163.com");
 
-    int self_socket = rte_socket_id();
+    
     uint64_t total_pkts = 0;
     FILE *log_fp = hplog_init(lcore_id);
     const size_t log_data_size = 2048;
@@ -278,7 +292,8 @@ void _hm_worker_run(void *dummy)
 
         struct tm tms;
         const time_t t = time(NULL);
-        localtime_r( &t, &tms);
+        localtime_r( &t, &tms );
+
 		int n = 0;
         for (; n< nb_rx;n++)
         {
@@ -365,8 +380,34 @@ void _hm_worker_run(void *dummy)
                         hm_hash_search(self_socket, pad_key, (void**)&target );
                         if ( likely(target == NULL) )
                             continue;
-                        if ( (global_log_hook) ) {
-                            uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
+
+                        // judge if we need hijack by time config
+                        int percent = 100;
+                        bool need_hook = true;
+                        uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);                        
+                        
+                        if ( time_config_get_hijack(time_config, &tms, &percent) && percent < 100 && percent >= 0 ) {
+                            //配置文件里设置了当前时间段需要hijack，并且比例小于 100%                            
+                            if ( percent == 0 ) {
+                                need_hook = false;
+                            } else {                                
+                                unsigned int value = 0;
+                                /*
+                                    使用线性同余法 x(n) = ( a*x(n-1) + b ) mod m                                    
+                                    m = 100
+                                */
+                                value = ( (tms.tm_wday+1)*src_ip + tms.tm_mday*tms.tm_mday ) % 100;
+                                if ( value > percent ) {
+                                    need_hook = false;
+                                }
+                                //HM_INFO("step4 need_hook=%d value=%d\n", need_hook, value);
+                            }
+                        } else {
+                            need_hook = true;
+                        }
+                        //HM_INFO("step5 percent=%d need_hook=%d\n",percent, need_hook);                        
+
+                        if ( global_log_hook ) {
 
                             /*
                             struct tm tms;
@@ -376,9 +417,10 @@ void _hm_worker_run(void *dummy)
 
                             #if 1
                             HM_INFO("%d%02d%02d%02d%02d%02d, " 
-                                "%d.%d.%d.%d, Hook %s to %s \n",
+                                "%d.%d.%d.%d, %s Hook %s to %s \n",                                
                                 1900+tms.tm_year,1+tms.tm_mon,tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec,
                                 src_ip>>24, src_ip>>16&0xff, src_ip>>8&0xff , src_ip&0xff,
+                                need_hook?"need":"not",
                                 pad_key, target);
                             #else
                             HM_INFO("%d, %d.%d.%d.%d, Hook %s to %s \n", time(NULL), 
@@ -386,6 +428,10 @@ void _hm_worker_run(void *dummy)
                                 pad_key, target);
                             #endif
                         }
+
+                        if ( !need_hook )
+                            continue;
+
                         const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
                         int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
 

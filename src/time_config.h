@@ -1,6 +1,8 @@
 
 #ifndef _TIME_CONFIG_H_
 #define _TIME_CONFIG_H_
+#include <time.h>
+#include <stdbool.h>
 
 #include "libconfig.h"
 
@@ -20,5 +22,7 @@ struct hijack_time_params {
 };
 
 struct hijack_time_params *load_time_config_file(char *filename, int *err);
+
+bool time_config_get_hijack(struct hijack_time_params *tp, struct tm *t, int *percent);
 
 #endif

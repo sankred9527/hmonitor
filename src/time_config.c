@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+
 #include "time_config.h"
 
 struct hijack_time_params *load_time_config_file(char *config_file, int *err)
@@ -21,7 +22,6 @@ struct hijack_time_params *load_time_config_file(char *config_file, int *err)
         goto out;
     }
     
-    int default_percent;
     if ( !config_lookup_int(&cfg, "default_percent", &tparams->default_percent) ) {
         *err = -3;
         goto out;
@@ -59,11 +59,37 @@ struct hijack_time_params *load_time_config_file(char *config_file, int *err)
             continue;
         }
     }
-
+    config_destroy(&cfg);
     return tparams;
 out:
     config_destroy(&cfg);
     free(tparams);    
     return NULL;
     
+}
+
+bool time_config_get_hijack(struct hijack_time_params *tp, struct tm *t, int *percent) {
+    int n;
+    bool find = false;
+    
+    if ( tp == NULL )
+        return false;
+
+    *percent = -1;
+
+    for (n = 0; n< MAX_TIME_CONFIG; n++) {
+        if ( t->tm_hour >= tp->items[n].start_hour && t->tm_min >= tp->items[n].start_minute &&
+            t->tm_hour <= tp->items[n].end_hour && t->tm_min <= tp->items[n].end_minute 
+        ) {
+            *percent = tp->items[n].percent;
+            find = true;
+            break;
+        }
+    }
+
+    if ( find == false ) {
+        *percent = tp->default_percent;
+    }
+
+    return true;
 }
