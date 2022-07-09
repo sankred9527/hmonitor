@@ -261,17 +261,19 @@ void _hm_worker_run(void *dummy)
     if ( global_hm_config->time_config != NULL ) {
         time_config = rte_calloc_socket(NULL, 1, sizeof(struct hijack_time_params), 8, self_socket);        
         memcpy(time_config, global_hm_config->time_config, sizeof(struct hijack_time_params));    
-        HM_INFO("default percent=%02d%%\n", time_config->default_percent);
+        HM_INFO("default hcount=%02d\n", time_config->default_hcount);
         int n1 = 0;
-        for ( ; n1 < MAX_TIME_CONFIG; n1++ ) {
+        for ( ; n1 < time_config->items_count; n1++ ) {
             struct hijack_time_config *pt = &time_config->items[n1];
-            HM_INFO("core(%d), time config = %02d:%02d to %02d:%02d, percent=%d%%\n", lcore_id , pt->start_hour,pt->start_minute, pt->end_hour, pt->end_minute, pt->percent);
+            HM_INFO("core(%d), time config = %02d:%02d to %02d:%02d, hcount=%d%%\n", lcore_id , pt->start_hour,pt->start_minute, pt->end_hour, pt->end_minute, pt->hcount);
         }        
     }
         
 
     pad_key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , self_socket);
     //hash_test(pad_key, "www.163.com");
+    
+    struct rte_hash * time_hash = time_config_create_hash(self_socket, lcore_id, time_config->max_ip_hash_entities);
 
     
     uint64_t total_pkts = 0;
@@ -382,13 +384,13 @@ void _hm_worker_run(void *dummy)
                             continue;
 
                         // judge if we need hijack by time config
-                        int percent = 100;
+                        //int hcount = 100;
                         bool need_hook = true;
-                        uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);                        
-                        
-                        if ( time_config_get_hijack(time_config, &tms, &percent) && percent < 100 && percent >= 0 ) {
+                        uint32_t src_ip = rte_be_to_cpu_32(ipv4_hdr->src_addr);
+                        #if 0
+                        if ( time_config_get_hijack(time_config, &tms, &hcount) && hcount < 100 && hcount >= 0 ) {
                             //配置文件里设置了当前时间段需要hijack，并且比例小于 100%                            
-                            if ( percent == 0 ) {
+                            if ( hcount == 0 ) {
                                 need_hook = false;
                             } else {                                
                                 unsigned int value = 0;
@@ -397,7 +399,7 @@ void _hm_worker_run(void *dummy)
                                     m = 100
                                 */
                                 value = ( (tms.tm_wday+1)*src_ip + tms.tm_mday*tms.tm_mday ) % 100;
-                                if ( value > percent ) {
+                                if ( value > hcount ) {
                                     need_hook = false;
                                 }
                                 //HM_INFO("step4 need_hook=%d value=%d\n", need_hook, value);
@@ -405,7 +407,8 @@ void _hm_worker_run(void *dummy)
                         } else {
                             need_hook = true;
                         }
-                        //HM_INFO("step5 percent=%d need_hook=%d\n",percent, need_hook);                        
+                        #endif 
+                        need_hook = time_config_judge_hijack(time_hash, self_socket, src_ip, tms.tm_hour, time_config->default_hcount);
 
                         if ( global_log_hook ) {
 
