@@ -170,13 +170,17 @@ load_domain_config(char *config_file) {
                 continue;
             }
 
+            int use_time_config = 0;
+            config_setting_lookup_bool(domain, "use_time_config", &use_time_config);
+
             conf->domains[i] = calloc(1, sizeof(domain_t));
             conf->domains[i]->domain = calloc(HM_MAX_DOMAIN_LEN, sizeof(char));
             conf->domains[i]->target = calloc(HM_MAX_DOMAIN_LEN, sizeof(char));
+            conf->domains[i]->use_time_config = use_time_config;
 
             memcpy(conf->domains[i]->domain, _domain, strlen(_domain));
             memcpy(conf->domains[i]->target, _target, strlen(_target));
-            //HM_LOG(INFO, "domain: %s --> target: %s\n", conf->domains[i]->domain, conf->domains[i]->target);
+            //HM_LOG(INFO, "domain: %s --> target: %s tc=%d\n", conf->domains[i]->domain, conf->domains[i]->target, conf->domains[i]->use_time_config);
         }
         conf->domains_count = i;
         HM_LOG(INFO, "total: %d domains\n", conf->domains_count);

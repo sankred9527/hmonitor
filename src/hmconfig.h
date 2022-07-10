@@ -19,6 +19,7 @@
 typedef struct {
     char* domain;
     char* target;
+    bool use_time_config;
 } domain_t;
 
 typedef struct {

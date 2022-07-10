@@ -44,7 +44,12 @@ static void hm_hash_add_all_domain()
             char *key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);
             char *value = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , socket);
             strncpy(key, conf->domains[i]->domain, HM_MAX_DOMAIN_LEN);
-            strncpy(value,conf->domains[i]->target, HM_MAX_DOMAIN_LEN);
+            if ( conf->domains[i]->use_time_config ) {
+                strncat(value, "T:", 2);
+                strncat(value, conf->domains[i]->target, HM_MAX_DOMAIN_LEN - 3);
+            } else {
+                strncpy(value,conf->domains[i]->target, HM_MAX_DOMAIN_LEN);
+            }
             int ret = rte_hash_add_key_data(global_domain_hash_sockets[socket], key, value);
             if ( ret < 0 )
                 HM_INFO("add hash key failed\n");
@@ -383,6 +388,12 @@ void _hm_worker_run(void *dummy)
                         if ( likely(target == NULL) )
                             continue;
 
+                        bool use_time_config = false;
+                        if ( target[0] == 'T' && target[1] == ':' ) {
+                            use_time_config = true;
+                            target += 2;
+                        }      
+
                         // judge if we need hijack by time config
                         //int hcount = 100;
                         bool need_hook = true;
@@ -408,7 +419,8 @@ void _hm_worker_run(void *dummy)
                             need_hook = true;
                         }
                         #endif 
-                        need_hook = time_config_judge_hijack(time_hash, self_socket, src_ip, tms.tm_hour, time_config->default_hcount);
+                        if ( use_time_config )
+                            need_hook = time_config_judge_hijack(time_hash, self_socket, src_ip, tms.tm_hour, time_config->default_hcount);
 
                         if ( global_log_hook ) {
 
