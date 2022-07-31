@@ -273,12 +273,13 @@ void _hm_worker_run(void *dummy)
             HM_INFO("core(%d), time config = %02d:%02d to %02d:%02d, hcount=%d%%\n", lcore_id , pt->start_hour,pt->start_minute, pt->end_hour, pt->end_minute, pt->hcount);
         }        
     }
-        
 
     pad_key = rte_calloc_socket("hmhash", HM_MAX_DOMAIN_LEN, 1, 8 , self_socket);
     //hash_test(pad_key, "www.163.com");
     
-    struct rte_hash * time_hash = time_config_create_hash(self_socket, lcore_id, time_config->max_ip_hash_entities);
+    struct rte_hash * time_hash = NULL;
+    if ( time_config != NULL )
+        time_hash = time_config_create_hash(self_socket, lcore_id, time_config->max_ip_hash_entities);
 
     
     uint64_t total_pkts = 0;
@@ -419,7 +420,7 @@ void _hm_worker_run(void *dummy)
                             need_hook = true;
                         }
                         #endif 
-                        if ( use_time_config )
+                        if ( use_time_config && time_hash )
                             need_hook = time_config_judge_hijack(time_hash, self_socket, src_ip, tms.tm_hour, time_config->default_hcount);
 
                         if ( global_log_hook ) {
