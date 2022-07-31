@@ -2,6 +2,17 @@
 #include <rte_eal.h>
 #include <rte_mbuf.h>
 #include <time.h>
+
+#include <arpa/inet.h>
+#include <linux/if_packet.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <netinet/ether.h>
+
 #include "time_config.h"
 #define BURST_SIZE 32
 
@@ -10,6 +21,8 @@ extern int global_work_type;
 extern struct hm_config *global_hm_config;
 extern bool global_log_hook ;
 extern struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
+extern int global_rawsocket;
+extern int global_bind_dev_idx;
 
 static inline bool
 get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length, char** refer, size_t *refer_length);
@@ -137,6 +150,93 @@ get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
     return vlan_offset;
 }
 
+static inline bool __attribute__((always_inline))
+ModifyAndSendPacket_socket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
+                            char *data, size_t data_len, size_t request_data_len)
+{
+	uint16_t ether_type,offset;
+	struct rte_ipv4_hdr *ip_hdr;
+	int ipv4_hdr_len, tcp_hdr_len;
+
+    struct rte_mbuf *mbuf = rte_pktmbuf_alloc(originalMbuf->pool);
+    mbuf->packet_type = originalMbuf->packet_type;
+    mbuf->hash.rss = originalMbuf->hash.rss;
+
+    struct rte_ether_hdr *new_ether_hdr = (struct rte_ether_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ether_hdr));
+	//fill_ethernet_header
+    {
+        rte_memcpy(new_ether_hdr, eth_hdr, sizeof(struct rte_ether_hdr));
+	    new_ether_hdr->s_addr = eth_hdr->d_addr;
+	    new_ether_hdr->d_addr = eth_hdr->s_addr;
+    }
+
+	struct rte_ipv4_hdr *new_ipv4_hdr = (struct rte_ipv4_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ipv4_hdr));
+	//fill_ipv4_header(new_ipv4_hdr);
+    {
+        rte_memcpy(new_ipv4_hdr, ipv4_hdr, sizeof(struct rte_ipv4_hdr));
+        new_ipv4_hdr->src_addr = ipv4_hdr->dst_addr;
+        new_ipv4_hdr->dst_addr = ipv4_hdr->src_addr;
+        new_ipv4_hdr->version_ihl = IPVERSION << 4 | sizeof(struct rte_ipv4_hdr) / RTE_IPV4_IHL_MULTIPLIER,
+        //printf("old ipv4 hdr=%d %d\n", ipv4_hdr->version_ihl, new_ipv4_hdr->version_ihl);
+        //printf("old ipv4 total len=%d\n", rte_be_to_cpu_16(ipv4_hdr->total_length));
+
+        new_ipv4_hdr->type_of_service = 0; // No Diffserv
+        new_ipv4_hdr->total_length = rte_cpu_to_be_16( sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr) + data_len);
+        new_ipv4_hdr->packet_id = rte_cpu_to_be_16(5462); // set random
+        new_ipv4_hdr->fragment_offset = rte_cpu_to_be_16(0);
+        new_ipv4_hdr->time_to_live = 58;
+        new_ipv4_hdr->next_proto_id = IPPROTO_TCP; // tcp
+        //new_ipv4_hdr->hdr_checksum = rte_cpu_to_be_16(25295);
+    }
+
+    struct rte_tcp_hdr *new_tcp_hdr = (struct rte_tcp_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_tcp_hdr));
+	//fill_tcp_header
+    {
+    	uint32_t seq_tmp;
+	    seq_tmp = tcphdr->recv_ack;
+	    new_tcp_hdr->recv_ack = rte_cpu_to_be_32(rte_be_to_cpu_32(tcphdr->sent_seq) + request_data_len);
+	    new_tcp_hdr->sent_seq = seq_tmp;
+	    new_tcp_hdr->tcp_flags = RTE_TCP_ACK_FLAG | RTE_TCP_PSH_FLAG;
+        new_tcp_hdr->src_port = tcphdr->dst_port;
+        new_tcp_hdr->dst_port = tcphdr->src_port;
+        new_tcp_hdr->rx_win = rte_cpu_to_be_16(256);
+        new_tcp_hdr->data_off =  sizeof(struct rte_tcp_hdr) / 4 << 4;
+        new_tcp_hdr->tcp_urp = 0;
+
+        // do cksum later
+    }
+    char *content = (char *) rte_pktmbuf_append(mbuf, data_len);
+    rte_memcpy(content, data, data_len);
+
+    new_ipv4_hdr->hdr_checksum = 0;
+    new_tcp_hdr->cksum = 0;
+    new_ipv4_hdr->hdr_checksum = rte_ipv4_cksum(new_ipv4_hdr);
+    new_tcp_hdr->cksum = rte_ipv4_udptcp_cksum(new_ipv4_hdr, new_tcp_hdr);
+
+
+    struct sockaddr_ll dest_addr;
+    dest_addr.sll_ifindex = global_bind_dev_idx;
+    /* Address length*/
+    dest_addr.sll_halen = ETH_ALEN;
+    /* Destination MAC */
+    int k ;
+    for (k=0;k<6;k++) 
+        dest_addr.sll_addr[k] = new_ether_hdr->d_addr.addr_bytes[k];
+
+    int ret = sendto(global_rawsocket, (char *)new_ether_hdr, rte_be_to_cpu_16(new_ipv4_hdr->total_length) + sizeof(struct rte_ether_hdr), 0, (struct sockaddr *)&dest_addr, sizeof (dest_addr));
+	if (ret <= 0) {
+		HM_LOG(ERR, "Send failed.. %s\n", strerror(errno) );
+    }
+    else
+    {
+        
+        //HM_INFO("send cnt=%d\n",ret );
+    }
+
+    rte_pktmbuf_free(mbuf);
+
+    return true;
+}
 
 static inline bool __attribute__((always_inline))
 ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
@@ -452,7 +552,12 @@ void _hm_worker_run(void *dummy)
                         int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
 
                         uint16_t tx_queue_id = 0;
-                        ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len);                    
+                        if ( global_rawsocket > 0 ) {
+                            //HM_INFO("send with raw socket\n");
+                            ModifyAndSendPacket_socket(bufs[n],eth_hdr,ipv4_hdr,tcp,  pad_key, data_len, content_len); 
+
+                        } else 
+                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len);                    
                     }
                 }
             }

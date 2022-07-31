@@ -1,5 +1,17 @@
 #include "main.h"
-
+#include <net/ethernet.h>
+/*
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include<linux/sockios.h>
+*/
+#include <sys/ioctl.h>
+#include <netpacket/packet.h>
+#include <linux/if.h>
+    
 
 static int
 hm_parse_args(int argc, char **argv)
@@ -10,6 +22,7 @@ hm_parse_args(int argc, char **argv)
 	"t:"  /* config file path */
 	"T:"  /* timer period */
 	"d"   /* dump port info */
+	"r:"   /* use raw socket to send */
 	"w:"  /* work type */
 	"l"   /* log hook */
 	;
@@ -31,6 +44,37 @@ hm_parse_args(int argc, char **argv)
                 break;
 			case 't':
 				global_timeconf_filename = optarg;
+				break;
+			case 'r':
+                {
+                    struct ifreq  ifr;
+                    strncpy(ifr.ifr_name, optarg, IFNAMSIZ);
+				    global_rawsocket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+                    if ( global_rawsocket < 0 ) {
+                        HM_INFO("raw socket error\n");
+                        return -1;
+                    }
+
+                    if (ioctl(global_rawsocket, SIOCGIFINDEX, &ifr) == -1) {
+                        HM_INFO("ioctl SIOCGIFINDEX error\n");
+                        return -1;
+                    }
+                    global_bind_dev_idx = ifr.ifr_ifindex;
+
+                    struct sockaddr_ll  addr;
+                    // Bind socket to interface
+                    memset(&addr, 0x0, sizeof(addr));
+                    addr.sll_family   = AF_PACKET;
+                    addr.sll_protocol = htons(ETH_P_ALL);
+                    addr.sll_ifindex  = ifr.ifr_ifindex;
+                    if (bind(global_rawsocket, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+                        close(global_rawsocket);
+                        HM_INFO("Failed to bind socket to interface device %s!\n", optarg);
+                        return -1; 
+                    } else {
+                        HM_INFO("bind socket to interface device %s!\n", optarg);
+                    }
+                }
 				break;
 			case 'd':
 				global_dump_info = true;

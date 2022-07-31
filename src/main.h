@@ -47,3 +47,5 @@ static bool global_dump_info = false;
 bool global_log_hook = false;
 int global_work_type = -1;
 struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
+int global_rawsocket = -1;
+int global_bind_dev_idx = -1;
