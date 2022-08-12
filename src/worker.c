@@ -37,7 +37,7 @@ static struct rte_hash * hm_hash_create(int socketid){
     snprintf(name,32 , "hmhash%d", socketid);
 	struct rte_hash_parameters params_pseudo_hash = {
 		.name = name,
-		.entries = 1024*512,
+		.entries = 1024*512*2,
 		.key_len = HM_MAX_DOMAIN_LEN,
 		.hash_func = rte_jhash,
 		.hash_func_init_val = 0,
@@ -152,7 +152,7 @@ get_vlan_offset(struct rte_ether_hdr *eth_hdr, uint16_t *proto)
 
 static inline bool __attribute__((always_inline))
 ModifyAndSendPacket_socket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
-                            char *data, size_t data_len, size_t request_data_len)
+                            char *data, size_t data_len, size_t request_data_len, void *vlan_ptr)
 {
 	uint16_t ether_type,offset;
 	struct rte_ipv4_hdr *ip_hdr;
@@ -168,6 +168,12 @@ ModifyAndSendPacket_socket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *
         rte_memcpy(new_ether_hdr, eth_hdr, sizeof(struct rte_ether_hdr));
 	    new_ether_hdr->s_addr = eth_hdr->d_addr;
 	    new_ether_hdr->d_addr = eth_hdr->s_addr;
+    }
+
+    if ( vlan_ptr != NULL ) {
+        size_t vlan_size = sizeof(struct rte_vlan_hdr);
+        struct rte_vlan_hdr *vlan_hdr = (struct rte_vlan_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_vlan_hdr)); 
+        rte_memcpy( vlan_hdr, vlan_ptr, vlan_size );
     }
 
 	struct rte_ipv4_hdr *new_ipv4_hdr = (struct rte_ipv4_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ipv4_hdr));
@@ -240,7 +246,7 @@ ModifyAndSendPacket_socket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *
 
 static inline bool __attribute__((always_inline))
 ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
-                    uint16_t pid, uint16_t qid, char *data, size_t data_len, size_t request_data_len)
+                    uint16_t pid, uint16_t qid, char *data, size_t data_len, size_t request_data_len, void *vlan_ptr)
 {
 	//struct ether_addr tmpEthAddr;
 	uint16_t ether_type,offset;
@@ -258,6 +264,13 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
 	    new_ether_hdr->s_addr = eth_hdr->d_addr;
 	    new_ether_hdr->d_addr = eth_hdr->s_addr;
     }
+
+    if ( vlan_ptr != NULL ) {
+        size_t vlan_size = sizeof(struct rte_vlan_hdr);
+        struct rte_vlan_hdr *vlan_hdr = (struct rte_vlan_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_vlan_hdr)); 
+        rte_memcpy( vlan_hdr, vlan_ptr, vlan_size );
+    }
+    
 
 	struct rte_ipv4_hdr *new_ipv4_hdr = (struct rte_ipv4_hdr *) rte_pktmbuf_append(mbuf, sizeof(struct rte_ipv4_hdr));
 	//fill_ipv4_header(new_ipv4_hdr);
@@ -421,6 +434,12 @@ void _hm_worker_run(void *dummy)
             uint16_t ip_total_len;
             struct rte_ipv4_hdr *ipv4_hdr;
 
+            void *p_vlan = NULL;            
+            if ( offset > 0 ) {            
+                //vlan_offset = sizeof(struct rte_vlan_hdr);
+                p_vlan = eth_hdr + 1;
+            }
+
             ipv4_hdr = (struct rte_ipv4_hdr *)((uint8_t *)(eth_hdr + 1) + offset);
             ip_total_len = rte_be_to_cpu_16(ipv4_hdr->total_length);
             ipv4_hdr_len = rte_ipv4_hdr_len(ipv4_hdr);
@@ -554,10 +573,10 @@ void _hm_worker_run(void *dummy)
                         uint16_t tx_queue_id = 0;
                         if ( global_rawsocket > 0 ) {
                             //HM_INFO("send with raw socket\n");
-                            ModifyAndSendPacket_socket(bufs[n],eth_hdr,ipv4_hdr,tcp,  pad_key, data_len, content_len); 
+                            ModifyAndSendPacket_socket(bufs[n],eth_hdr,ipv4_hdr,tcp,  pad_key, data_len, content_len, p_vlan); 
 
                         } else 
-                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len);                    
+                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len, p_vlan);
                     }
                 }
             }
