@@ -1,5 +1,7 @@
 #include "hmconfig.h"
 
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
 struct hm_config *global_hm_config;
 
@@ -39,20 +41,59 @@ struct port_params *hm_config_get_core_rx_param(uint16_t core, uint16_t *queue_i
 }
 
 
+static int ipstr_to_range(char *ip_str, uint32_t *ip, uint32_t *mask)
+{
+    char *prefix_end, *prefix;
+    unsigned int prefixlen ;
+    const int PREFIXMAX = 32;
+
+    prefix = strrchr(ip_str, '/');
+    if (prefix == NULL) {
+        prefixlen = PREFIXMAX;
+    } else {
+        *prefix = '\0';
+        prefix++;
+        errno = 0;
+        prefixlen = strtol(prefix, &prefix_end, 10); 
+
+        if (errno || (*prefix_end != '\0')
+                || prefixlen < 0 || prefixlen > PREFIXMAX) {
+
+            HM_INFO("ip mask %d error \n", prefixlen);
+            return -1;
+        }
+    }
+    if ( inet_pton(AF_INET, ip_str, ip) != 1 ) {
+        HM_INFO("load ip %s error\n", ip_str);
+        return -1;
+    }
+    *ip = ntohl(*ip);
+    if ( prefixlen >= 32  ) 
+        *mask = 0xffffffff;
+    else
+        *mask = ( (1<<prefixlen) - 1 ) << (PREFIXMAX-prefixlen) ;
+
+    return 0 ;
+}
+
 #define _load_one_core_port(port_param , name, point ) \
     do \
         if(!config_setting_lookup_int(port_param, #name, &(point->name))) { \
             HM_INFO("load " #name " wrong\n"); \
             return false; \
         } \
-    while (0);
+    while (0)
 
 static bool
-load_core_port_config(char *config_file, struct port_params *port_config[], unsigned int max_port) {
+load_core_config(char *config_file, struct hm_config* _hm_config) {
     if ( 0 != access(config_file, F_OK) ){
         HM_LOG(ERR, "%s not exists\n", config_file);
         exit(EXIT_FAILURE);
     }
+    struct port_params **port_config = _hm_config->port_config;
+    ip2ttl_t **ip2ttl_configs = _hm_config->ip2ttls;
+
+    unsigned int max_port = RTE_MAX_ETHPORTS;
     HM_LOG(INFO, "load config file %s\n", config_file);
     domain_conf_t* conf = calloc(1, sizeof(domain_conf_t));
 
@@ -107,9 +148,55 @@ load_core_port_config(char *config_file, struct port_params *port_config[], unsi
                 pc->rxqueue_to_core[k] = -1;
         }
     }
+    config_setting_t *all_ttls = config_lookup(&cfg, "ttl_conf");
+    if ( all_ttls == NULL ) {
+        return true;
+    }
+
+    count = config_setting_length(all_ttls);
+    if ( count <= 0 )
+        return true;
+
+    if ( count > HM_MAX_IP2TTL_CONFIG)
+        rte_exit(-1, "max ttl in config file\n");
+
+    for(i = 0; i < count; ++i) {
+        config_setting_t *ttl_param = config_setting_get_elem(all_ttls, i);
+        ip2ttl_t *ttl = ip2ttl_configs[i] = calloc(sizeof(ip2ttl_t), 1);
+
+        char *ip_range = NULL;
+        if(!config_setting_lookup_string(ttl_param, "src", (const char**)&ip_range)) {
+            HM_INFO("ttlconfig: load src  wrong\n"); 
+            return false; 
+        } 
+
+        if ( 0 != ipstr_to_range((char*)ip_range, &ttl->src, &ttl->mask) ) {
+            HM_INFO("ttlconfig : %s format error\n", ip_range);
+            return false;
+        }
+        HM_INFO("ip range=%s %x %x\n",ip_range, ttl->src, ttl->mask);
+
+        if(!config_setting_lookup_int(ttl_param, "ttl", &(ttl->ttl))) {
+            HM_INFO("ttlconfig: load ttl wrong\n"); 
+            return false; 
+        } 
+
+        if ( ttl->ttl > 0xff ) {
+            HM_INFO("load TTL(%d) must less than 256 \n", ttl->ttl);
+            return false;
+        }
+    }
+
+    if ( !config_lookup_int(&cfg, "default_ttl", &_hm_config->default_ttl)  ) {
+        return false;
+    } 
+    HM_INFO("default TTL is %d\n", _hm_config->default_ttl);
+    if ( _hm_config->default_ttl > 0xff ) {
+        HM_INFO("default TTL must less than 256 \n");
+        return false;
+    }
 
     return true;
-
 }
 
 static const domain_conf_t*
@@ -226,7 +313,7 @@ int hm_config_init(char *domain_config_file, char *coreport_config_file, char *t
 
     global_hm_config->domain_config = load_domain_config(domain_config_file);
 
-    if ( !load_core_port_config(coreport_config_file, global_hm_config->port_config, RTE_MAX_ETHPORTS) ){
+    if ( !load_core_config(coreport_config_file, global_hm_config) ){
         rte_exit(-1, "load coreport config failed\n");
     }
 

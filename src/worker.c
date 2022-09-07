@@ -246,7 +246,7 @@ ModifyAndSendPacket_socket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *
 
 static inline bool __attribute__((always_inline))
 ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr, struct rte_ipv4_hdr *ipv4_hdr, struct rte_tcp_hdr *tcphdr,
-                    uint16_t pid, uint16_t qid, char *data, size_t data_len, size_t request_data_len, void *vlan_ptr)
+                    uint16_t pid, uint16_t qid, char *data, size_t data_len, size_t request_data_len, void *vlan_ptr, uint32_t ttl )
 {
 	//struct ether_addr tmpEthAddr;
 	uint16_t ether_type,offset;
@@ -286,7 +286,7 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
         new_ipv4_hdr->total_length = rte_cpu_to_be_16( sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr) + data_len);
         new_ipv4_hdr->packet_id = rte_cpu_to_be_16(5462); // set random
         new_ipv4_hdr->fragment_offset = rte_cpu_to_be_16(0);
-        new_ipv4_hdr->time_to_live = 58;
+        new_ipv4_hdr->time_to_live = ttl;
         new_ipv4_hdr->next_proto_id = IPPROTO_TCP; // tcp
         //new_ipv4_hdr->hdr_checksum = rte_cpu_to_be_16(25295);
     }
@@ -396,6 +396,22 @@ void _hm_worker_run(void *dummy)
     if ( time_config != NULL )
         time_hash = time_config_create_hash(self_socket, lcore_id, time_config->max_ip_hash_entities);
 
+    //为每个core 创建一个  ttl 配置参数
+    int ttl_config_count = 0;
+    ip2ttl_t *ttl_configs = NULL;
+
+    for (; ttl_config_count < HM_MAX_IP2TTL_CONFIG; ttl_config_count++ ) {
+        if ( global_hm_config->ip2ttls[ttl_config_count] == NULL  )
+            break;
+    }
+    if ( ttl_config_count > 0 ) {
+        ttl_configs = rte_calloc_socket("ttlconfig", ttl_config_count, sizeof(ip2ttl_t), 0 , self_socket);
+        int n ;
+        for (n=0; n<ttl_config_count;n++) {
+            memcpy(ttl_configs + n , global_hm_config->ip2ttls[n], sizeof(ip2ttl_t)  );
+            //HM_INFO("ttl[%d] %x %x \n", n, (ttl_configs + n)->src, (ttl_configs + n)->mask);
+        }
+    }
     
     uint64_t total_pkts = 0;
     FILE *log_fp = hplog_init(lcore_id);
@@ -568,6 +584,17 @@ void _hm_worker_run(void *dummy)
 
                         if ( !need_hook )
                             continue;
+                        uint8_t ttl = global_hm_config->default_ttl;
+                        if ( ttl_configs != NULL  ) {
+                            int n = 0;
+                            for (; n< ttl_config_count; n++ ) {
+                                uint32_t _ip = (ttl_configs+n)->src;
+                                uint32_t _mask = (ttl_configs+n)->mask;
+                                //HM_INFO("src_ip=%x %x %x \n", src_ip , _mask, _ip);
+                                if ( (src_ip & _mask) == _ip )
+                                    ttl = (ttl_configs+n)->ttl; 
+                            }
+                        }
 
                         const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
                         int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
@@ -578,8 +605,8 @@ void _hm_worker_run(void *dummy)
                             ModifyAndSendPacket_socket(bufs[n],eth_hdr,ipv4_hdr,tcp,  pad_key, data_len, content_len, p_vlan); 
 
                         } else 
-                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len, p_vlan);
-                    }
+                            ModifyAndSendPacket(bufs[n],eth_hdr,ipv4_hdr,tcp, port_param->tx_port, tx_queue_id, pad_key, data_len, content_len, p_vlan, ttl);
+                    } //end if ( hook worktype )
                 }
             }
 

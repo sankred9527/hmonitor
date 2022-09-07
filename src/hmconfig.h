@@ -15,6 +15,13 @@
 #define HM_MAX_DOMAINS (8192*100)
 #define HM_MAX_DOMAIN_LEN (1024)
 #define HM_MAX_CPU_SOCKET (32)
+#define HM_MAX_IP2TTL_CONFIG (32)
+
+typedef struct {
+    uint32_t src;
+    uint32_t mask;
+    unsigned int ttl;
+} ip2ttl_t;
 
 typedef struct {
     char* domain;
@@ -25,6 +32,7 @@ typedef struct {
 typedef struct {
     domain_t* domains[HM_MAX_DOMAINS];
     int domains_count;
+
 } domain_conf_t;
 
 struct port_params {
@@ -41,7 +49,10 @@ struct hm_config {
     struct port_params *port_config[HM_MAX_ETHPORTS];
     const domain_conf_t* domain_config;
     const struct hijack_time_params *time_config;
-    void *domain_hash_handle;
+    void *domain_hash_handle; 
+
+    ip2ttl_t *ip2ttls[HM_MAX_IP2TTL_CONFIG];
+    uint32_t default_ttl;
 };
 
 extern struct hm_config *global_hm_config;
