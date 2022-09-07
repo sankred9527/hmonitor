@@ -148,6 +148,17 @@ load_core_config(char *config_file, struct hm_config* _hm_config) {
                 pc->rxqueue_to_core[k] = -1;
         }
     }
+
+    // ttl configs 
+    if ( !config_lookup_int(&cfg, "default_ttl", &_hm_config->default_ttl)  ) {
+        return false;
+    } 
+    HM_INFO("default TTL is %d\n", _hm_config->default_ttl);
+    if ( _hm_config->default_ttl > 0xff ) {
+        HM_INFO("default TTL must less than 256 \n");
+        return false;
+    }
+
     config_setting_t *all_ttls = config_lookup(&cfg, "ttl_conf");
     if ( all_ttls == NULL ) {
         return true;
@@ -187,14 +198,6 @@ load_core_config(char *config_file, struct hm_config* _hm_config) {
         }
     }
 
-    if ( !config_lookup_int(&cfg, "default_ttl", &_hm_config->default_ttl)  ) {
-        return false;
-    } 
-    HM_INFO("default TTL is %d\n", _hm_config->default_ttl);
-    if ( _hm_config->default_ttl > 0xff ) {
-        HM_INFO("default TTL must less than 256 \n");
-        return false;
-    }
 
     return true;
 }
