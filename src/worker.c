@@ -316,8 +316,10 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
     new_tcp_hdr->cksum = rte_ipv4_udptcp_cksum(new_ipv4_hdr, new_tcp_hdr);
 
     uint16_t ret = rte_eth_tx_burst(pid, qid, &mbuf, 1);
-	if (ret <= 0)
+	if ( unlikely(ret <= 0) ) {
 		HM_LOG(ERR, "Send failed..\n");
+		rte_pktmbuf_free(mbuf);
+    }
     else
     {
         //printf("send cnt=%d\n",ret);
