@@ -596,8 +596,12 @@ void _hm_worker_run(void *dummy)
                             }
                         }
 
-                        const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
-                        int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format,  target );
+                        //const char *response_format = "HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: %s\r\n\r\n";
+                        const char *response_format = "HTTP/1.1 200 OK\r\nContent-Length: %d\r\nServer: nginx\r\n\r\n%s";
+                        const char* body_format = "<html><script>window.location.href='%s';</script></html>";
+                        char bodybuf[1024];
+                        int body_len = snprintf(bodybuf,1024, body_format, target);
+                        int data_len = snprintf(pad_key, HM_MAX_DOMAIN_LEN, response_format, body_len, bodybuf );
 
                         uint16_t tx_queue_id = 0;
                         if ( global_rawsocket > 0 ) {
