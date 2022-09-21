@@ -11,7 +11,9 @@
 #include <sys/ioctl.h>
 #include <netpacket/packet.h>
 #include <linux/if.h>
-    
+#include <sys/stat.h>
+#include <sys/types.h>
+
 
 static int
 hm_parse_args(int argc, char **argv)
@@ -145,6 +147,8 @@ main(int argc, char *argv[])
 	}
 
     HM_LOG(INFO, "config file=%s\n", global_config_filename);
+
+    mkdir("./logs/", 0777);
 
 	hm_config_init(global_config_filename, global_coreport_filename, global_timeconf_filename);
 

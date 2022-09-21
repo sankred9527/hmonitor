@@ -23,9 +23,21 @@ extern bool global_log_hook ;
 extern struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
 extern int global_rawsocket;
 extern int global_bind_dev_idx;
+extern size_t global_max_log_size_in_bytes;
+
+
+#define MAX_LOG_FILENAME (64)
+struct hplog_t {
+    FILE *fp;
+    char filename[MAX_LOG_FILENAME];
+    char real_filename[MAX_LOG_FILENAME];
+    size_t size;
+    size_t max_size;
+}; 
 
 static inline bool
 get_http_host(char *content, size_t content_length, char **host, size_t *host_length, char **url, size_t *url_length, char** refer, size_t *refer_length);
+
 
 static struct rte_hash * hm_hash_create(int socketid){
 
@@ -113,19 +125,44 @@ void hm_hash_init(){
 
 
 
-FILE * hplog_init(int core_id)
-{
-    char fn[32];
-    snprintf(fn,32,"httplog_%d.log", core_id);
-    FILE *fp = fopen(fn, "w+");
+bool hplog_add(struct hplog_t *log_handle, char *data, size_t len,int core_id){
+    if (len <= 0 || data == NULL || core_id < 0 )
+        return true;
 
-    return fp;
+    if ( log_handle->fp == NULL  ) {
+        snprintf(log_handle->filename, MAX_LOG_FILENAME, "./logs/httplog_%d.tmp", core_id);
+        log_handle->fp = fopen(log_handle->filename, "w+");
+        if ( log_handle->fp == NULL ) {
+            HM_INFO("open log file error : %s\n", log_handle->filename);
+            return false;
+        }
+        log_handle->size = 0;
+        log_handle->max_size = global_max_log_size_in_bytes;
+    }
+
+    fwrite(data, len, 1, log_handle->fp);
+    log_handle->size += len;
+
+    if ( log_handle->size >= log_handle->max_size ) {
+        fclose(log_handle->fp);
+
+        log_handle->fp = NULL;
+        log_handle->size = 0;
+
+        struct tm tms;
+        const time_t t = time(NULL);
+        localtime_r( &t, &tms );
+
+        snprintf(log_handle->real_filename, MAX_LOG_FILENAME, "./logs/httplog_%d_%d%02d%02d%02d%02d%02d.log", 
+                core_id, 
+                1900+tms.tm_year, 1+tms.tm_mon, tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec
+                );
+        rename(log_handle->filename, log_handle->real_filename);
+    }
+    return true;
 }
 
-void hplog_append_line(FILE* fp,char *data, size_t len)
-{
-    fwrite(data, len, 1, fp);
-}
+
 
 
 static inline size_t
@@ -254,6 +291,10 @@ ModifyAndSendPacket(struct rte_mbuf* originalMbuf, struct rte_ether_hdr *eth_hdr
 	int ipv4_hdr_len, tcp_hdr_len;
 
     struct rte_mbuf *mbuf = rte_pktmbuf_alloc(originalMbuf->pool);
+    if ( mbuf == NULL  ) {
+        HM_INFO("malloc failed%d\n");
+        return false;
+    }
     mbuf->packet_type = originalMbuf->packet_type;
     mbuf->hash.rss = originalMbuf->hash.rss;
 
@@ -341,6 +382,11 @@ void _hm_worker_run(void *dummy)
     uint16_t queue_id;
 	lcore_id = rte_lcore_id();
     char *pad_key = NULL;
+    struct hplog_t log_handle = {
+        .fp = NULL,
+        .size = 0,
+        .max_size = 1024*1024*1024*100ULL
+    };
 
 
     if ( lcore_id == rte_get_main_lcore() )
@@ -414,7 +460,6 @@ void _hm_worker_run(void *dummy)
     }
     
     uint64_t total_pkts = 0;
-    FILE *log_fp = hplog_init(lcore_id);
     const size_t log_data_size = 2048;
     char *log_data = rte_malloc_socket("logdata", log_data_size, 64, self_socket);
 	while ( !rte_atomic16_read(&global_exit_flag) )
@@ -511,7 +556,7 @@ void _hm_worker_run(void *dummy)
                         log_data[log_offset] = '\n';
                         log_offset++;
 
-                        hplog_append_line(log_fp, log_data, log_offset);                        
+                        hplog_add(&log_handle, log_data, log_offset, lcore_id);                        
                     }
                     
                     if ( global_work_type == 1 || global_work_type == 3  ) {

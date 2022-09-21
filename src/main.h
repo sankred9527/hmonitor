@@ -49,3 +49,4 @@ int global_work_type = -1;
 struct rte_hash *global_domain_hash_sockets[HM_MAX_CPU_SOCKET];
 int global_rawsocket = -1;
 int global_bind_dev_idx = -1;
+size_t global_max_log_size_in_bytes = 200; //1024*1024*1024;

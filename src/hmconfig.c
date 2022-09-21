@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 
 struct hm_config *global_hm_config;
+extern size_t global_max_log_size_in_bytes;
 
 extern void hm_hash_init();
 
@@ -38,6 +39,48 @@ struct port_params *hm_config_get_core_rx_param(uint16_t core, uint16_t *queue_i
 
     *queue_id = -1;
     return NULL;
+}
+
+long parse_size_str(char *cfg){
+    const size_t oneK = 1024;
+    const size_t oneM = oneK*oneK;
+    const size_t oneG = 1024*1024*1024*1;
+
+    char *p = cfg;
+
+    while ( isspace(*p) || isdigit(*p) ) {
+        p++;
+    }
+
+    char k = *p;
+    *p = 0;
+
+    long n = atol(cfg);
+
+    switch(k) {
+        case 'G':
+        case 'g':
+            n = oneG * n;
+            break;
+        case 'm':
+        case 'M':
+            n = oneM * n;
+            break;
+        case 'k':
+        case 'K':
+            n = oneK * n;
+            break;
+        default:
+            if ( isspace(k) || k == 0  ) {
+                //do nothing
+            } 
+            else {
+                return -1;
+            }
+    }
+
+
+    return n;
 }
 
 
@@ -148,6 +191,15 @@ load_core_config(char *config_file, struct hm_config* _hm_config) {
                 pc->rxqueue_to_core[k] = -1;
         }
     }
+
+    //log size
+    char *size_cfg = NULL;
+    if ( !config_lookup_string(&cfg, "default_log_size", (const char**)&size_cfg) ) {
+        size_cfg = strdup("1G");
+    } 
+    global_max_log_size_in_bytes = parse_size_str(size_cfg);
+    HM_INFO("default log_size is %d\n", global_max_log_size_in_bytes);
+    
 
     // ttl configs 
     if ( !config_lookup_int(&cfg, "default_ttl", &_hm_config->default_ttl)  ) {
